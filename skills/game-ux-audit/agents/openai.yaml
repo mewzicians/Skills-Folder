@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game UX Audit"
+  short_description: "Audit game clarity and accessibility"
+  default_prompt: "Use $game-ux-audit to inspect this game onboarding, navigation, readability, responsive behavior, feedback, decision clarity, and accessibility."

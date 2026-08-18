@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Implement"
+  short_description: "Implement approved game changes end to end"
+  default_prompt: "Use $game-implement to implement this approved game change across logic, UI, persistence, tests, documentation, and configured release artifacts."

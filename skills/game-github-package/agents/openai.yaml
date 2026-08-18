@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game GitHub Package"
+  short_description: "Build and verify a public game ZIP"
+  default_prompt: "Use $game-github-package to synchronize the public repository mirror, build a deterministic ZIP, and verify inventory, bytes, links, hashes, and upload readiness."

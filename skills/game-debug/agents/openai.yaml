@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Debug"
+  short_description: "Reproduce and repair game defects safely"
+  default_prompt: "Use $game-debug to reproduce, diagnose, narrowly repair, and regression-test this game defect without changing unrelated behavior."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Playtest Analysis"
+  short_description: "Turn playtests into ranked learning"
+  default_prompt: "Use $game-playtest-analysis to connect this playtest evidence to the tested build, rank findings by impact and confidence, and design discriminating next experiments."

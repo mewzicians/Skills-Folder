@@ -1,0 +1,7 @@
+# Modified from OpenAI Codex system-skill metadata for this game suite.
+interface:
+  display_name: "Game Skill Creator"
+  short_description: "Create reusable or specialized game skills"
+  default_prompt: "Use $game-skill-creator to create a concise, validated game-development skill with a reusable core and an explicit project-specialization layer."
+  icon_small: "./assets/skill-creator-small.svg"
+  icon_large: "./assets/skill-creator.png"

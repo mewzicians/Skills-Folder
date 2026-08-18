@@ -1,0 +1,7 @@
+# Modified from OpenAI Codex system-skill metadata for this game suite.
+interface:
+  display_name: "Game Skill Installer"
+  short_description: "Install and back up game-development skills"
+  default_prompt: "Use $game-skill-installer to install or refresh these game-development skills from a local suite or repository while preserving existing installations with backups."
+  icon_small: "./assets/skill-installer-small.svg"
+  icon_large: "./assets/skill-installer.png"

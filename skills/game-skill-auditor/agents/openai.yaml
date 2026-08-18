@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Skill Auditor"
+  short_description: "Audit and strengthen game-development skills"
+  default_prompt: "Use $game-skill-auditor to reconstruct this game skill mission, find trigger and capability gaps, test portability, and recommend mission-preserving repairs."

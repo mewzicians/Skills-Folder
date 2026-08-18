@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Full Verification"
+  short_description: "Verify a complete game release candidate"
+  default_prompt: "Use $game-full-verification to reconstruct the requirement matrix and verify this game release candidate across implementation, UX, persistence, performance, packaging, and edge cases."

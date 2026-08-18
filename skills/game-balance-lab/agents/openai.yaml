@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Balance Lab"
+  short_description: "Test game balance with legal evidence"
+  default_prompt: "Use $game-balance-lab to analyze this game balance question with legal policies, controlled evidence, uncertainty, and clearly labeled recommendations."

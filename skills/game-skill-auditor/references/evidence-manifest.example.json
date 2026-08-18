@@ -1,0 +1,239 @@
+{
+  "audit_id": "replace-with-audit-id",
+  "mode": "audit",
+  "contract_version": "",
+  "contract_frozen_at": "",
+  "target": "path/to/skill",
+  "target_actor_id": "target-skill",
+  "evidence_root": "path/to/external-evidence",
+  "requirements": [
+    {
+      "id": "REQ-TRIGGER",
+      "contract_clause": "trigger",
+      "provenance_category": "user",
+      "acceptance_criterion": "",
+      "test_ids": [],
+      "provenance": {}
+    },
+    {
+      "id": "REQ-READ",
+      "contract_clause": "read",
+      "provenance_category": "higher-level",
+      "acceptance_criterion": "",
+      "test_ids": [],
+      "provenance": {}
+    },
+    {
+      "id": "REQ-DECIDE",
+      "contract_clause": "decide",
+      "provenance_category": "user",
+      "acceptance_criterion": "",
+      "test_ids": [],
+      "provenance": {}
+    },
+    {
+      "id": "REQ-DO",
+      "contract_clause": "do",
+      "provenance_category": "user",
+      "acceptance_criterion": "",
+      "test_ids": [],
+      "provenance": {}
+    },
+    {
+      "id": "REQ-DO-NOT",
+      "contract_clause": "do-not",
+      "provenance_category": "higher-level",
+      "acceptance_criterion": "",
+      "test_ids": [],
+      "provenance": {}
+    },
+    {
+      "id": "REQ-EVIDENCE",
+      "contract_clause": "evidence",
+      "provenance_category": "project",
+      "acceptance_criterion": "",
+      "test_ids": [],
+      "provenance": {}
+    },
+    {
+      "id": "REQ-STOP",
+      "contract_clause": "stop",
+      "provenance_category": "user",
+      "acceptance_criterion": "",
+      "test_ids": [],
+      "provenance": {}
+    }
+  ],
+  "roles": [],
+  "blinding": {
+    "test_designer_saw_target": false,
+    "executors_saw_expected_results": false,
+    "judges_saw_author_rationale": false,
+    "holdout_revealed_before_freeze": false
+  },
+  "preservation": {
+    "unchanged": false,
+    "before_artifact": "",
+    "before_sha256": "",
+    "after_artifact": "",
+    "after_sha256": "",
+    "provenance": {}
+  },
+  "tests": [
+    {
+      "id": "official-validator",
+      "category": "structural",
+      "case_type": "validator",
+      "requirement_ids": [],
+      "required": true,
+      "status": "not-run",
+      "result": "unknown",
+      "invocation": {
+        "executable": "",
+        "script_ref": "",
+        "script_sha256": "",
+        "arguments": []
+      },
+      "exit_code": null,
+      "target_sha256": "",
+      "provenance": {}
+    },
+    {
+      "id": "bundled-audit",
+      "category": "structural",
+      "case_type": "validator",
+      "requirement_ids": [],
+      "required": true,
+      "status": "not-run",
+      "result": "unknown",
+      "invocation": {
+        "executable": "",
+        "script_ref": "",
+        "script_sha256": "",
+        "arguments": []
+      },
+      "exit_code": null,
+      "target_sha256": "",
+      "strict": false,
+      "provenance": {}
+    },
+    {
+      "id": "canonical-1",
+      "category": "behavioral",
+      "case_type": "canonical",
+      "requirement_ids": [],
+      "required": true,
+      "status": "not-run",
+      "result": "unknown",
+      "prompt_ref": "",
+      "prompt_sha256": "",
+      "output_ref": "",
+      "output_sha256": "",
+      "target_sha256": "",
+      "activation": {
+        "invocation_mode": "auto-dispatch",
+        "expected": true,
+        "observed": false,
+        "selected_skill": ""
+      },
+      "provenance": {},
+      "secondary_judgment": {}
+    }
+  ],
+  "behavioral_result_shape": {
+    "kind": "behavioral-result",
+    "test_id": "",
+    "target_sha256": "",
+    "prompt_sha256": "",
+    "output_sha256": "",
+    "requirement_ids": [],
+    "result": "unknown",
+    "executor_actor": "",
+    "judge_actor": "",
+    "executor_context_id": "",
+    "judge_context_id": "",
+    "executor_prompt_sha256": "",
+    "judge_prompt_sha256": "",
+    "review_lens": "contract-criteria",
+    "rationale": "",
+    "criterion_results": [
+      {
+        "requirement_id": "",
+        "result": "unknown",
+        "observation": ""
+      }
+    ],
+    "activation": {
+      "invocation_mode": "auto-dispatch",
+      "expected": true,
+      "observed": false,
+      "selected_skill": ""
+    },
+    "created_at": ""
+  },
+  "mutations": [
+    {
+      "id": "mutation-trigger",
+      "category": "trigger",
+      "requirement_ids": [],
+      "severity": "high",
+      "status": "not-run",
+      "detected": false,
+      "target_sha256": "",
+      "mutated_target": "",
+      "mutated_sha256": "",
+      "output_ref": "",
+      "output_sha256": "",
+      "finding": "",
+      "repair": "",
+      "mutation_design": {
+        "defect_description": "",
+        "expected_failure": "",
+        "changed_paths": []
+      },
+      "provenance": {}
+    }
+  ],
+  "mutation_result_shape": {
+    "kind": "mutation-result",
+    "mutation_id": "",
+    "target_sha256": "",
+    "mutated_sha256": "",
+    "output_sha256": "",
+    "requirement_ids": [],
+    "category": "trigger",
+    "detected": false,
+    "finding": "",
+    "repair": "",
+    "executor_actor": "",
+    "judge_actor": "",
+    "executor_context_id": "",
+    "judge_context_id": "",
+    "executor_prompt_sha256": "",
+    "judge_prompt_sha256": "",
+    "review_lens": "contract-criteria",
+    "rationale": "",
+    "changed_paths": [],
+    "created_at": ""
+  },
+  "repair": {},
+  "disagreements": [],
+  "external_review": {
+    "status": "not-run",
+    "result": "unknown",
+    "provenance": {}
+  },
+  "holdout": {
+    "external_to_target": false,
+    "frozen_before_reveal": false,
+    "holdout_frozen_at": "",
+    "revealed_at": "",
+    "status": "not-run",
+    "result": "unknown"
+  },
+  "user_acceptance": {
+    "confirmed_by_user": false,
+    "status": "not-run",
+    "result": "unknown"
+  }
+}

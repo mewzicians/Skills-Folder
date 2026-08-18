@@ -1,0 +1,4 @@
+interface:
+  display_name: "Music Composer"
+  short_description: "Compose and critique purposeful music"
+  default_prompt: "Use $music-composer to apply the durable music guide, challenge the first recommendation, and create the strongest listening-based next step."

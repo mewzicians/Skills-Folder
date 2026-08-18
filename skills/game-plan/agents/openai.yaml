@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Plan"
+  short_description: "Plan coherent game systems and decisions"
+  default_prompt: "Use $game-plan to evaluate this game-design question against current project truth, identify risks and alternatives, and record only explicit decisions."

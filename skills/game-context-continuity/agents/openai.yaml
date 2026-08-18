@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game Context Continuity"
+  short_description: "Preserve complex game-development state"
+  default_prompt: "Use $game-context-continuity to preserve this game-development task across compaction or handoff with a verified resume ledger."

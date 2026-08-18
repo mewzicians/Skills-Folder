@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+*.zip
+.game-skill-backup-*/
+.game-skill-suite-backup-*/
+.skill-suite-*-test-*/
