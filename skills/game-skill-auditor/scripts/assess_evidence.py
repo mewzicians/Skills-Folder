@@ -43,7 +43,7 @@ SEVERITIES = {"critical", "high", "medium", "low"}
 MATERIAL_SEVERITIES = {"critical", "high"}
 STRUCTURAL_TEST_IDS = {"official-validator", "bundled-audit"}
 BUNDLED_OFFICIAL_VALIDATOR_SHA256 = (
-    "5347a0a09cfb546bba1c0d1a30dae0a233d9a05f57bd4e7877155c588bcdabf7"
+    "6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51"
 )
 CONTRACT_CLAUSES = {
     "trigger",
