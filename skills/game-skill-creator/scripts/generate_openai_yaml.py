@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Adapted from OpenAI's Codex skill-creator. This file has been modified:
+# explicit UTF-8 reads and writes, atomic writes, and UTF-8 console output.
 """
 OpenAI YAML Generator - Creates agents/openai.yaml for a skill folder.
 
@@ -7,7 +9,10 @@ Usage:
 """
 
 import argparse
+import os
 import re
+import secrets
+import shutil
 import sys
 from pathlib import Path
 
@@ -45,6 +50,33 @@ ALLOWED_INTERFACE_KEYS = {
     "brand_color",
     "default_prompt",
 }
+
+
+def configure_stdio():
+    """Write UTF-8 to stdout and stderr and escape anything unencodable."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
+def write_text_atomic(path, text):
+    """Write UTF-8 text with LF newlines through a sibling temporary file.
+
+    The target is replaced only after every byte is written, so a failed
+    write leaves an existing file unchanged.
+    """
+    path = Path(path)
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        if path.exists():
+            shutil.copymode(path, temporary)
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def yaml_quote(value):
@@ -106,7 +138,14 @@ def read_frontmatter_name(skill_dir):
     if not skill_md.exists():
         print(f"[ERROR] SKILL.md not found in {skill_dir}")
         return None
-    content = skill_md.read_text()
+    try:
+        content = skill_md.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        print("[ERROR] SKILL.md is not valid UTF-8.")
+        return None
+    if content.startswith("\ufeff"):
+        print("[ERROR] SKILL.md starts with a UTF-8 byte-order mark; save it as UTF-8 without BOM.")
+        return None
     match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
     if not match:
         print("[ERROR] Invalid SKILL.md frontmatter format.")
@@ -182,12 +221,13 @@ def write_openai_yaml(skill_dir, skill_name, raw_overrides):
     agents_dir = Path(skill_dir) / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     output_path = agents_dir / "openai.yaml"
-    output_path.write_text("\n".join(interface_lines) + "\n")
+    write_text_atomic(output_path, "\n".join(interface_lines) + "\n")
     print(f"[OK] Created agents/openai.yaml")
     return output_path
 
 
 def main():
+    configure_stdio()
     parser = argparse.ArgumentParser(
         description="Create agents/openai.yaml for a skill directory.",
     )

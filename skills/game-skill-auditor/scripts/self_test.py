@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -69,6 +70,33 @@ LEVEL_BY_EVIDENCE_COMPLETENESS = {
 }
 
 
+def configure_stdio() -> None:
+    """Write UTF-8 to stdout and stderr and escape anything unencodable."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
+def write_text_atomic(path: Path, text: str) -> None:
+    """Write UTF-8 text with LF newlines through a sibling temporary file.
+
+    The target is replaced only after every byte is written, so a failed
+    write leaves an existing file unchanged.
+    """
+    path = Path(path)
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        if path.exists():
+            shutil.copymode(path, temporary)
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def provenance(
     label: str,
     *,
@@ -110,7 +138,7 @@ def package_digest(path: Path) -> str:
 
 def write_artifact(name: str, text: str) -> Path:
     path = EVIDENCE_DIR / name
-    path.write_text(text, encoding="utf-8")
+    write_text_atomic(path, text)
     return path
 
 
@@ -225,13 +253,13 @@ def plant_mutation(mutated_package: Path, category: str) -> tuple[list[str], str
     text = path.read_text(encoding="utf-8")
     if old not in text:
         raise ValueError(f"Mutation source text not found for {category}: {old}")
-    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    write_text_atomic(path, text.replace(old, new, 1))
     return [path.relative_to(mutated_package).as_posix()], description, expected
 
 
 def build_example() -> dict:
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
-    EVIDENCE_FILE.write_text("Verified test evidence.\n", encoding="utf-8")
+    write_text_atomic(EVIDENCE_FILE, "Verified test evidence.\n")
     target_digest = package_digest(TARGET)
     roles = [
         role_entry(
@@ -282,7 +310,8 @@ def build_example() -> dict:
     external_actors = [
         role["actor"] for role in roles if role["role"] != "execution"
     ]
-    EXTERNAL_REVIEW_FILE.write_text(
+    write_text_atomic(
+        EXTERNAL_REVIEW_FILE,
         json.dumps(
             {
                 "verdict": "pass",
@@ -294,7 +323,6 @@ def build_example() -> dict:
             indent=2,
         )
         + "\n",
-        encoding="utf-8",
     )
     behavioral_specs = [
         ("canonical-1", "canonical", "Audit this skill for gaps."),
@@ -1347,7 +1375,7 @@ def external_review_actor_reused(manifest: dict) -> None:
     payload = json.loads(EXTERNAL_REVIEW_FILE.read_text(encoding="utf-8"))
     payload["review_actor_id"] = "contract-steward"
     artifact = OUT_DIR / "external-review-reused-actor.json"
-    artifact.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(artifact, json.dumps(payload, indent=2) + "\n")
     manifest["external_review"]["provenance"] = provenance(
         "external review with reused actor",
         actor="contract-steward",
@@ -1505,13 +1533,13 @@ def wrong_mutated_skill_identity(manifest: dict) -> None:
         shutil.rmtree(wrong)
     shutil.copytree(source, wrong)
     skill = wrong / "SKILL.md"
-    skill.write_text(
+    write_text_atomic(
+        skill,
         skill.read_text(encoding="utf-8").replace(
             "name: game-skill-auditor",
             "name: wrong-mutation-target",
             1,
         ),
-        encoding="utf-8",
     )
     item["mutated_target"] = str(wrong)
     item["mutated_sha256"] = package_digest(wrong)
@@ -1638,10 +1666,10 @@ def minimal_mutation_decoy(manifest: dict) -> None:
         shutil.rmtree(decoy)
     decoy.mkdir()
     source_skill = TARGET / "SKILL.md"
-    (decoy / "SKILL.md").write_text(
+    write_text_atomic(
+        decoy / "SKILL.md",
         source_skill.read_text(encoding="utf-8")
         + "\n<!-- minimal decoy mutation -->\n",
-        encoding="utf-8",
     )
     item["mutated_target"] = str(decoy)
     item["mutated_sha256"] = package_digest(decoy)
@@ -2225,8 +2253,10 @@ DETAIL_EXPECTATIONS: dict[str, dict[str, bool]] = {
 
 
 def run() -> int:
+    configure_stdio()
     target_digest = package_digest(TARGET)
-    HOLDOUT_FILE.write_text(
+    write_text_atomic(
+        HOLDOUT_FILE,
         json.dumps(
             {
                 "kind": "holdout-result",
@@ -2240,9 +2270,9 @@ def run() -> int:
             indent=2,
         )
         + "\n",
-        encoding="utf-8",
     )
-    ACCEPTANCE_FILE.write_text(
+    write_text_atomic(
+        ACCEPTANCE_FILE,
         json.dumps(
             {
                 "kind": "user-acceptance",
@@ -2258,7 +2288,6 @@ def run() -> int:
             indent=2,
         )
         + "\n",
-        encoding="utf-8",
     )
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
     for package_path in (
@@ -2272,19 +2301,19 @@ def run() -> int:
             shutil.rmtree(package_path)
         shutil.copytree(TARGET, package_path)
     before_skill = REPAIR_BEFORE_PACKAGE / "SKILL.md"
-    before_skill.write_text(
+    write_text_atomic(
+        before_skill,
         before_skill.read_text(encoding="utf-8")
         + "\n<!-- pre-repair snapshot -->\n",
-        encoding="utf-8",
     )
     unrelated_skill = UNRELATED_BEFORE_PACKAGE / "SKILL.md"
-    unrelated_skill.write_text(
+    write_text_atomic(
+        unrelated_skill,
         unrelated_skill.read_text(encoding="utf-8").replace(
             "name: game-skill-auditor",
             "name: unrelated-before",
             1,
         ),
-        encoding="utf-8",
     )
     example = build_example()
     results = []
@@ -2310,7 +2339,7 @@ def run() -> int:
         )
         manifest["audit_id"] = name
         fixture = OUT_DIR / f"{name}.json"
-        fixture.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        write_text_atomic(fixture, json.dumps(manifest, indent=2) + "\n")
         completed = subprocess.run(
             [
                 sys.executable,
@@ -2325,6 +2354,8 @@ def run() -> int:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         parsed = json.loads(completed.stdout) if completed.stdout.strip() else {}
         observed = parsed.get("readiness", f"ERROR rc={completed.returncode}")
@@ -2394,6 +2425,8 @@ def run() -> int:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     report_only_payload = (
         json.loads(report_only.stdout) if report_only.stdout.strip() else {}
@@ -2421,6 +2454,8 @@ def run() -> int:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         payload = json.loads(completed.stdout) if completed.stdout.strip() else {}
         expected_returncode = 0 if required_level == "Structurally Valid" else 1
@@ -2442,7 +2477,7 @@ def run() -> int:
         item["passed"] for item in require_level_results.values()
     )
     result_path = OUT_DIR / "results.json"
-    result_path.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(result_path, json.dumps(results, indent=2) + "\n")
     output = {
         "probe_count": len(results),
         "bypass_count": sum(item["bypass"] for item in results),

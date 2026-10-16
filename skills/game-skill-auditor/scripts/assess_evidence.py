@@ -261,7 +261,8 @@ def skill_package_name(path: Path | None) -> str:
     if path is None:
         return ""
     try:
-        text = (path / "SKILL.md").read_text(encoding="utf-8-sig")
+        # Strict UTF-8 that keeps a BOM: like Codex, a BOM hides the name.
+        text = (path / "SKILL.md").read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return ""
     match = SKILL_NAME_PATTERN.search(text)
@@ -748,6 +749,8 @@ def replay_validator(
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
             env=os.environ.copy(),
         )
@@ -2351,7 +2354,16 @@ def assess(
     return level_index, blockers, details
 
 
+def configure_stdio() -> None:
+    """Write UTF-8 to stdout and stderr and escape anything unencodable."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def main() -> int:
+    configure_stdio()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--json", action="store_true", dest="as_json")

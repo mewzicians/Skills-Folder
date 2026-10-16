@@ -246,9 +246,9 @@ def audit_portability(
         )
 
 
-def parse_openai_yaml(path: Path) -> dict[str, tuple[str, bool, int]]:
+def parse_openai_yaml(text: str) -> dict[str, tuple[str, bool, int]]:
     values: dict[str, tuple[str, bool, int]] = {}
-    for line_number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), start=1):
+    for line_number, line in enumerate(text.splitlines(), start=1):
         match = re.match(
             r"^\s{2}(display_name|short_description|default_prompt):\s*(.*?)\s*$",
             line,
@@ -271,7 +271,22 @@ def audit_skill(skill_path: Path) -> list[dict[str, str]]:
     if not skill_md.is_file():
         return [issue("ERROR", "SKILL_MD", "SKILL.md is missing.", str(skill_path))]
 
-    text = skill_md.read_text(encoding="utf-8-sig")
+    try:
+        # Strict UTF-8 that keeps a BOM, as Codex reads SKILL.md.
+        text = skill_md.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return [issue("ERROR", "ENCODING", "SKILL.md is not valid UTF-8.", "SKILL.md")]
+    if text.startswith("\ufeff"):
+        findings.append(
+            issue(
+                "ERROR",
+                "ENCODING",
+                "SKILL.md starts with a UTF-8 byte-order mark, so Codex finds no "
+                "frontmatter. Save it as UTF-8 without BOM.",
+                "SKILL.md:1",
+            )
+        )
+        text = text[1:]
     frontmatter, frontmatter_findings = parse_frontmatter(text)
     findings.extend(frontmatter_findings)
 
@@ -425,6 +440,7 @@ def audit_skill(skill_path: Path) -> list[dict[str, str]]:
             )
 
     openai_yaml = skill_path / "agents" / "openai.yaml"
+    openai_text = None
     if not openai_yaml.is_file():
         findings.append(
             issue(
@@ -435,7 +451,18 @@ def audit_skill(skill_path: Path) -> list[dict[str, str]]:
             )
         )
     else:
-        openai_text = openai_yaml.read_text(encoding="utf-8-sig")
+        try:
+            openai_text = openai_yaml.read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            findings.append(
+                issue(
+                    "ERROR",
+                    "ENCODING",
+                    "agents/openai.yaml is not valid UTF-8.",
+                    "agents/openai.yaml",
+                )
+            )
+    if openai_text is not None:
         for key in ("display_name", "short_description", "default_prompt"):
             occurrences = len(
                 re.findall(rf"^\s{{2}}{re.escape(key)}\s*:", openai_text, re.MULTILINE)
@@ -449,7 +476,7 @@ def audit_skill(skill_path: Path) -> list[dict[str, str]]:
                         "agents/openai.yaml",
                     )
                 )
-        values = parse_openai_yaml(openai_yaml)
+        values = parse_openai_yaml(openai_text)
         for key in ("display_name", "short_description", "default_prompt"):
             if key not in values:
                 findings.append(
@@ -506,7 +533,16 @@ def audit_skill(skill_path: Path) -> list[dict[str, str]]:
     return findings
 
 
+def configure_stdio() -> None:
+    """Write UTF-8 to stdout and stderr and escape anything unencodable."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def main() -> int:
+    configure_stdio()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("skill_path", type=Path)
     parser.add_argument("--json", action="store_true", dest="as_json")

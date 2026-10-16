@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Adapted from OpenAI's Codex skill-installer. This file has been modified:
+# UTF-8 console output and no __pycache__.
 """List skills from a GitHub repo path."""
 
 from __future__ import annotations
@@ -8,6 +10,9 @@ import json
 import os
 import sys
 import urllib.error
+
+# Keep the sibling import below from writing __pycache__ into the skill.
+sys.dont_write_bytecode = True
 
 from github_utils import github_api_contents_url, github_request
 
@@ -83,7 +88,16 @@ def _parse_args(argv: list[str]) -> Args:
     return parser.parse_args(argv, namespace=Args())
 
 
+def configure_stdio() -> None:
+    """Write UTF-8 to stdout and stderr and escape anything unencodable."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def main(argv: list[str]) -> int:
+    configure_stdio()
     args = _parse_args(argv)
     try:
         skills = _list_skills(args.repo, args.path, args.ref)

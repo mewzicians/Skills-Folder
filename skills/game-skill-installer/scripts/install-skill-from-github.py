@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Adapted from OpenAI's Codex skill-installer. This file has been modified:
+# explicit UTF-8 subprocess decoding, UTF-8 console output, and no __pycache__.
 """Install a skill from a GitHub repo path into $CODEX_HOME/skills."""
 
 from __future__ import annotations
@@ -13,6 +15,9 @@ import tempfile
 import urllib.error
 import urllib.parse
 import zipfile
+
+# Keep the sibling import below from writing __pycache__ into the skill.
+sys.dont_write_bytecode = True
 
 from github_utils import github_request
 DEFAULT_REF = "main"
@@ -97,7 +102,14 @@ def _download_repo_zip(owner: str, repo: str, ref: str, dest_dir: str) -> str:
 
 
 def _run_git(args: list[str]) -> None:
-    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     if result.returncode != 0:
         raise InstallError(result.stderr.strip() or "Git command failed.")
 
@@ -266,7 +278,16 @@ def _parse_args(argv: list[str]) -> Args:
     return parser.parse_args(argv, namespace=Args())
 
 
+def configure_stdio() -> None:
+    """Write UTF-8 to stdout and stderr and escape anything unencodable."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def main(argv: list[str]) -> int:
+    configure_stdio()
     args = _parse_args(argv)
     try:
         source = _resolve_source(args)

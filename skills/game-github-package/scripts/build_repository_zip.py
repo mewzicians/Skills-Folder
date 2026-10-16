@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 import zipfile
 from pathlib import Path
 
@@ -106,7 +107,16 @@ def build(source, output, required):
     }
 
 
+def configure_stdio():
+    """Write UTF-8 to stdout and stderr and escape anything unencodable."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def main():
+    configure_stdio()
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)

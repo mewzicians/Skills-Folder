@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Adapted from OpenAI's Codex skill-creator. This file has been modified:
+# explicit UTF-8 atomic writes, UTF-8 console output, and no __pycache__.
 """
 Skill Initializer - Creates a new skill from template
 
@@ -18,7 +20,10 @@ import re
 import sys
 from pathlib import Path
 
-from generate_openai_yaml import write_openai_yaml
+# Keep the sibling import below from writing __pycache__ into the skill.
+sys.dont_write_bytecode = True
+
+from generate_openai_yaml import configure_stdio, write_openai_yaml, write_text_atomic
 
 MAX_SKILL_NAME_LENGTH = 64
 ALLOWED_RESOURCES = {"scripts", "references", "assets"}
@@ -234,7 +239,7 @@ def create_resource_dirs(skill_dir, skill_name, skill_title, resources, include_
         if resource == "scripts":
             if include_examples:
                 example_script = resource_dir / "example.py"
-                example_script.write_text(EXAMPLE_SCRIPT.format(skill_name=skill_name))
+                write_text_atomic(example_script, EXAMPLE_SCRIPT.format(skill_name=skill_name))
                 example_script.chmod(0o755)
                 print("[OK] Created scripts/example.py")
             else:
@@ -242,14 +247,14 @@ def create_resource_dirs(skill_dir, skill_name, skill_title, resources, include_
         elif resource == "references":
             if include_examples:
                 example_reference = resource_dir / "api_reference.md"
-                example_reference.write_text(EXAMPLE_REFERENCE.format(skill_title=skill_title))
+                write_text_atomic(example_reference, EXAMPLE_REFERENCE.format(skill_title=skill_title))
                 print("[OK] Created references/api_reference.md")
             else:
                 print("[OK] Created references/")
         elif resource == "assets":
             if include_examples:
                 example_asset = resource_dir / "example_asset.txt"
-                example_asset.write_text(EXAMPLE_ASSET)
+                write_text_atomic(example_asset, EXAMPLE_ASSET)
                 print("[OK] Created assets/example_asset.txt")
             else:
                 print("[OK] Created assets/")
@@ -290,7 +295,7 @@ def init_skill(skill_name, path, resources, include_examples, interface_override
 
     skill_md_path = skill_dir / "SKILL.md"
     try:
-        skill_md_path.write_text(skill_content)
+        write_text_atomic(skill_md_path, skill_content)
         print("[OK] Created SKILL.md")
     except Exception as e:
         print(f"[ERROR] Error creating SKILL.md: {e}")
@@ -334,6 +339,7 @@ def init_skill(skill_name, path, resources, include_examples, interface_override
 
 
 def main():
+    configure_stdio()
     parser = argparse.ArgumentParser(
         description="Create a new skill directory with a SKILL.md template.",
     )

@@ -5,8 +5,17 @@ import argparse
 import json
 import os
 import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
+
+
+def configure_stdio():
+    """Write UTF-8 to stdout and stderr and escape anything unencodable."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
 
 
 def validate_skill(source):
@@ -43,6 +52,7 @@ def install(sources, destination):
 
 
 def main():
+    configure_stdio()
     parser = argparse.ArgumentParser()
     parser.add_argument("source", nargs="+", type=Path)
     parser.add_argument(

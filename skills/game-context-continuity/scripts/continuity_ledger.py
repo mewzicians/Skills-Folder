@@ -9,11 +9,71 @@ import hashlib
 import io
 import math
 import json
+import os
 import re
+import secrets
+import shutil
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+
+def configure_stdio() -> None:
+    """Write UTF-8 to stdout and stderr and escape anything unencodable."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
+def _temporary_sibling(path: Path) -> Path:
+    return path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
+
+
+def write_text_atomic(path: Path, text: str) -> None:
+    """Write UTF-8 text with LF newlines through a sibling temporary file.
+
+    The target is replaced only after every byte is written, so a failed
+    write leaves an existing file unchanged.
+    """
+    path = Path(path)
+    temporary = _temporary_sibling(path)
+    try:
+        with temporary.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        if path.exists():
+            shutil.copymode(path, temporary)
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def create_text_exclusive(path: Path, text: str) -> None:
+    """Create a new UTF-8 LF file, refusing to replace one that exists.
+
+    The text goes to a sibling temporary file first and is then linked into
+    place, so a failed write never leaves a partial file behind.
+    """
+    temporary = _temporary_sibling(path)
+    try:
+        with temporary.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            raise
+        except OSError:
+            # No hard links on this filesystem: reserve the name, then replace.
+            os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            try:
+                os.replace(temporary, path)
+            except BaseException:
+                path.unlink(missing_ok=True)
+                raise
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 REQUIRED_HEADINGS = [
@@ -892,8 +952,7 @@ def command_init(args: argparse.Namespace) -> int:
         )
         return 2
     try:
-        with ledger.open("x", encoding="utf-8", newline="\n") as handle:
-            handle.write(ledger_template(workspace, objective, task_id))
+        create_text_exclusive(ledger, ledger_template(workspace, objective, task_id))
     except FileExistsError:
         print(f"ERROR: refusing to overwrite existing ledger: {ledger}", file=sys.stderr)
         return 1
@@ -954,7 +1013,7 @@ def command_self_test(_: argparse.Namespace) -> int:
         workspace = Path(raw).resolve()
         good = workspace / "CONTEXT_CONTINUITY.continuity-self-test.md"
         source = workspace / "source.txt"
-        source.write_text("Authoritative source.\n", encoding="utf-8")
+        write_text_atomic(source, "Authoritative source.\n")
         good_content = ledger_template(
             workspace,
             "Preserve a long-running implementation task across compaction.",
@@ -978,13 +1037,14 @@ def command_self_test(_: argparse.Namespace) -> int:
             "- Last completed: Workspace source and inventory verified.",
             1,
         )
-        good.write_text(good_content, encoding="utf-8")
+        write_text_atomic(good, good_content)
         if validate_ledger(good, workspace):
             failures.append("valid ledger produced findings")
 
         base = good.read_text(encoding="utf-8")
         complete = workspace / "complete.md"
-        complete.write_text(
+        write_text_atomic(
+            complete,
             base.replace("- Status: active", "- Status: complete", 1)
             .replace(
                 "- In progress: Inspect governing instructions and verify current workspace state.",
@@ -996,7 +1056,6 @@ def command_self_test(_: argparse.Namespace) -> int:
                 "- Action: Task complete: all verified work is finished.",
                 1,
             ),
-            encoding="utf-8",
         )
         if validate_ledger(complete, workspace):
             failures.append("valid complete ledger produced findings")
@@ -1118,7 +1177,7 @@ def command_self_test(_: argparse.Namespace) -> int:
         }
         for name, (content, expected_code) in error_cases.items():
             candidate = workspace / f"{name}.md"
-            candidate.write_text(content, encoding="utf-8")
+            write_text_atomic(candidate, content)
             findings = validate_ledger(candidate, workspace)
             if not any(
                 item["severity"] == "ERROR" and item["code"] == expected_code
@@ -1127,9 +1186,9 @@ def command_self_test(_: argparse.Namespace) -> int:
                 failures.append(f"{name} did not produce {expected_code}")
 
         redacted = workspace / "redacted.md"
-        redacted.write_text(
+        write_text_atomic(
+            redacted,
             base.replace("None known.", "api_key=<redacted>", 1),
-            encoding="utf-8",
         )
         if any(
             item["code"] == "SECRET"
@@ -1138,14 +1197,14 @@ def command_self_test(_: argparse.Namespace) -> int:
             failures.append("benign redaction produced a secret finding")
 
         historical_todo = workspace / "historical-todo.md"
-        historical_todo.write_text(
+        write_text_atomic(
+            historical_todo,
             base.replace(
                 "### Rejected Or Superseded\nNone yet.",
                 "### Rejected Or Superseded\n"
                 "- Historical note: the old document mentioned a literal TODO marker.",
                 1,
             ),
-            encoding="utf-8",
         )
         if any(
             item["code"] == "PLACEHOLDER"
@@ -1154,7 +1213,8 @@ def command_self_test(_: argparse.Namespace) -> int:
             failures.append("historical TODO prose produced a placeholder finding")
 
         transcript = workspace / "transcript.md"
-        transcript.write_text(
+        write_text_atomic(
+            transcript,
             base.replace(
                 "## Delegated Work\nNone.",
                 "## Delegated Work\n"
@@ -1162,7 +1222,6 @@ def command_self_test(_: argparse.Namespace) -> int:
                 "AI: I will continue the task from the previous message.",
                 1,
             ),
-            encoding="utf-8",
         )
         transcript_findings = validate_ledger(transcript, workspace)
         if not any(
@@ -1189,14 +1248,14 @@ def command_self_test(_: argparse.Namespace) -> int:
             datetime.now(timezone.utc) - timedelta(hours=48)
         ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         stale = workspace / "stale.md"
-        stale.write_text(
+        write_text_atomic(
+            stale,
             re.sub(
                 r"(?m)^- Updated: .+$",
                 f"- Updated: {stale_time}",
                 base,
                 count=1,
             ),
-            encoding="utf-8",
         )
         stale_check, _, _ = invoke(
             command_check,
@@ -1238,12 +1297,12 @@ def command_self_test(_: argparse.Namespace) -> int:
 
         copied_workspace = workspace / "copied-workspace"
         copied_workspace.mkdir()
-        (copied_workspace / "source.txt").write_text(
+        write_text_atomic(
+            copied_workspace / "source.txt",
             "Copied authoritative source.\n",
-            encoding="utf-8",
         )
         copied = copied_workspace / good.name
-        copied.write_text(base, encoding="utf-8")
+        write_text_atomic(copied, base)
         copied_findings = validate_ledger(copied, copied_workspace)
         if not any(
             item["severity"] == "ERROR"
@@ -1353,6 +1412,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    configure_stdio()
     parser = build_parser()
     args = parser.parse_args()
     return args.func(args)
