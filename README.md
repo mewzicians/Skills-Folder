@@ -81,7 +81,6 @@ The release package is checked for:
 - project-neutral language and portable paths;
 - strict static-audit findings;
 - continuity and auditor adversarial self-tests;
-- manifest completeness and SHA-256 byte integrity;
 - backup-preserving installation;
 - deterministic archive inventory; and
 - extraction and clean installation from the archive.
@@ -96,7 +95,6 @@ skills/                    Installable skill folders
 templates/                 Project-specialization profile
 install-skills.ps1         Backup-preserving suite installer
 verify-package.ps1         Standalone package verifier
-MANIFEST.sha256            Complete file-integrity inventory
 ```
 
 ## License

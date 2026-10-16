@@ -48,45 +48,6 @@ $packageFiles | ForEach-Object {
     }
   }
 
-$manifestPath = Join-Path $packageRoot 'MANIFEST.sha256'
-$manifest = Get-Content -LiteralPath $manifestPath
-$manifestPaths = [System.Collections.Generic.HashSet[string]]::new(
-  [System.StringComparer]::Ordinal
-)
-foreach ($line in $manifest) {
-  if ($line -notmatch '^([A-F0-9]{64})  (.+)$') {
-    $errors.Add("Malformed manifest row: $line")
-    continue
-  }
-  $target = Join-Path $packageRoot $Matches[2]
-  if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
-    $errors.Add("Manifest path missing: $($Matches[2])")
-    continue
-  }
-  $actual = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
-  if ($actual -ne $Matches[1]) {
-    $errors.Add("Manifest mismatch: $($Matches[2])")
-  }
-  if (-not $manifestPaths.Add($Matches[2])) {
-    $errors.Add("Duplicate manifest path: $($Matches[2])")
-  }
-}
-
-$expectedPaths = $packageFiles |
-  Where-Object { $_.FullName -ne $manifestPath } |
-  ForEach-Object {
-    $_.FullName.Substring($packageRoot.Length + 1).Replace('\', '/')
-  }
-foreach ($path in $expectedPaths) {
-  if (-not $manifestPaths.Contains($path)) {
-    $errors.Add("Manifest omits package file: $path")
-  }
-}
-foreach ($path in $manifestPaths) {
-  if ($expectedPaths -notcontains $path) {
-    $errors.Add("Manifest lists unexpected file: $path")
-  }
-}
 
 if ($errors.Count) {
   $errors | ForEach-Object { Write-Error $_ }
