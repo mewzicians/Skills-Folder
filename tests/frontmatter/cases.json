@@ -1,0 +1,419 @@
+{
+  "about": "Frontmatter corpus for tools/lib/skill_frontmatter.py. Risky bytes (BOM, CRLF, control characters, cp1252) are written by the test at run time from these escaped strings, so no raw fixture is committed. docs/SKILL_SCHEMA.md documents every verdict; test_frontmatter.py checks both.",
+  "cases": [
+    {
+      "id": "valid-minimal",
+      "summary": "name and description only",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\n---\n\n# Case Skill\n",
+      "portable": {"errors": [], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "valid-optional-keys",
+      "summary": "license and one-level string metadata",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nlicense: Apache-2.0\nmetadata:\n  version: \"1.1.0\"\n  author: someone\n---\n\n# Case Skill\n",
+      "portable": {"errors": [], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "quoted-colon-hash",
+      "summary": "double quotes protect ': ' and ' #'",
+      "skill_md": "---\nname: case-skill\ndescription: \"Use when: a note says #1.\"\n---\n\n# Case Skill\n",
+      "portable": {"errors": [], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "single-quoted",
+      "summary": "single quotes with an escaped quote",
+      "skill_md": "---\nname: case-skill\ndescription: 'Use when it''s needed.'\n---\n\n# Case Skill\n",
+      "portable": {"errors": [], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "curly-quotes",
+      "summary": "curly quotes in the description",
+      "skill_md": "---\nname: case-skill\ndescription: Use when \u201cquoted\u201d or \u2018single\u2019 text appears.\n---\n\n# Case Skill\n",
+      "portable": {"errors": [], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "non-ascii",
+      "summary": "arrow, box drawing, and emoji",
+      "skill_md": "---\nname: case-skill\ndescription: Use when \u2192 arrows, \u2510 box drawing, or \ud83c\udfae emoji appear.\n---\n\n# Case Skill\n",
+      "portable": {"errors": [], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "bom",
+      "summary": "UTF-8 byte-order mark",
+      "skill_md": "\ufeff---\nname: case-skill\ndescription: Use when testing the validator.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["BOM"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["BOM"]}
+    },
+    {
+      "id": "crlf",
+      "summary": "CRLF line endings",
+      "skill_md": "---\r\nname: case-skill\r\ndescription: Use when testing the validator.\r\n---\r\n\r\n# Case Skill\r\n",
+      "portable": {"errors": ["CRLF"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["CRLF"]}
+    },
+    {
+      "id": "not-utf8",
+      "summary": "cp1252 bytes",
+      "encoding": "cp1252",
+      "skill_md": "---\nname: case-skill\ndescription: Use when caf\u00e9 menus appear.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["ENCODING"], "warnings": []},
+      "spec": {"errors": ["ENCODING"], "warnings": []}
+    },
+    {
+      "id": "tab-in-value",
+      "summary": "tab inside a value",
+      "skill_md": "---\nname: case-skill\ndescription: Use when\ttabs appear.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["TAB"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["TAB"]}
+    },
+    {
+      "id": "tab-indent",
+      "summary": "tab used as indentation",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nmetadata:\n\tversion: \"1\"\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["METADATA_TYPE", "TAB", "TAB_INDENT"], "warnings": []},
+      "spec": {"errors": ["METADATA_TYPE", "TAB_INDENT"], "warnings": ["TAB"]}
+    },
+    {
+      "id": "duplicate-key",
+      "summary": "the same key twice",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing.\ndescription: Use when testing again.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["DUPLICATE_KEY"], "warnings": []},
+      "spec": {"errors": ["DUPLICATE_KEY"], "warnings": []}
+    },
+    {
+      "id": "unknown-key",
+      "summary": "a key outside every schema",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nowner: someone\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["UNKNOWN_KEY"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["UNKNOWN_KEY"]}
+    },
+    {
+      "id": "compatibility",
+      "summary": "the spec's compatibility key",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\ncompatibility: Requires Python 3.11 or later.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["COMPATIBILITY_KEY"], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "compatibility-501",
+      "summary": "compatibility with 501 characters",
+      "fill": {"char": "c", "count": 501},
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\ncompatibility: @@FILL@@\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["COMPATIBILITY_KEY"], "warnings": []},
+      "spec": {"errors": ["COMPATIBILITY_LENGTH"], "warnings": []}
+    },
+    {
+      "id": "allowed-tools",
+      "summary": "allowed-tools as a string",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nallowed-tools: Read Grep\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["ALLOWED_TOOLS_KEY"], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "allowed-tools-list",
+      "summary": "allowed-tools as a YAML list",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nallowed-tools:\n  - Read\n  - Grep\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["ALLOWED_TOOLS_KEY"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["ALLOWED_TOOLS_FORMAT"]}
+    },
+    {
+      "id": "claude-when-to-use",
+      "summary": "Claude-only key when_to_use",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nwhen_to_use: Use for release checks.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "claude-disable-model-invocation",
+      "summary": "Claude-only key disable-model-invocation",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\ndisable-model-invocation: true\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "claude-argument-hint",
+      "summary": "Claude-only key argument-hint",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nargument-hint: \"[file]\"\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "claude-context",
+      "summary": "Claude-only key context",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\ncontext: fork\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "claude-agent",
+      "summary": "Claude-only key agent",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nagent: Explore\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "nested-metadata",
+      "summary": "metadata nested two levels",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nmetadata:\n  owner:\n    name: someone\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["METADATA_NESTED"], "warnings": []},
+      "spec": {"errors": ["METADATA_NESTED"], "warnings": []}
+    },
+    {
+      "id": "metadata-non-string",
+      "summary": "metadata value YAML reads as a float",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nmetadata:\n  version: 1.1\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["NON_STRING"], "warnings": []},
+      "spec": {"errors": ["NON_STRING"], "warnings": []}
+    },
+    {
+      "id": "metadata-flow-mapping",
+      "summary": "metadata written as a flow mapping",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nmetadata: {version: \"1\"}\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["UNSUPPORTED"], "warnings": []},
+      "spec": {"errors": ["UNSUPPORTED"], "warnings": []}
+    },
+    {
+      "id": "description-boolean",
+      "summary": "description YAML reads as a boolean",
+      "skill_md": "---\nname: case-skill\ndescription: yes\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["NON_STRING"], "warnings": []},
+      "spec": {"errors": ["NON_STRING"], "warnings": []}
+    },
+    {
+      "id": "description-null",
+      "summary": "description with no value",
+      "skill_md": "---\nname: case-skill\ndescription:\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["NON_STRING"], "warnings": []},
+      "spec": {"errors": ["NON_STRING"], "warnings": []}
+    },
+    {
+      "id": "license-number",
+      "summary": "license YAML reads as a float",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nlicense: 2.0\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["NON_STRING"], "warnings": []},
+      "spec": {"errors": ["NON_STRING"], "warnings": []}
+    },
+    {
+      "id": "unquoted-colon",
+      "summary": "unquoted ': ' in the description",
+      "skill_md": "---\nname: case-skill\ndescription: Use when: testing\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["SYNTAX"], "warnings": []},
+      "spec": {"errors": ["SYNTAX"], "warnings": []}
+    },
+    {
+      "id": "comment-in-value",
+      "summary": "unquoted ' #' truncates the value",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing #1 issues.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["COMMENT_IN_VALUE"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["COMMENT_IN_VALUE"]}
+    },
+    {
+      "id": "indicator-start",
+      "summary": "plain value starting with '@'",
+      "skill_md": "---\nname: case-skill\ndescription: @mention the reviewer.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["SYNTAX"], "warnings": []},
+      "spec": {"errors": ["SYNTAX"], "warnings": []}
+    },
+    {
+      "id": "invalid-escape",
+      "summary": "unknown double-quote escape",
+      "skill_md": "---\nname: case-skill\ndescription: \"Use when \\q appears.\"\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["SYNTAX"], "warnings": []},
+      "spec": {"errors": ["SYNTAX"], "warnings": []}
+    },
+    {
+      "id": "text-after-quote",
+      "summary": "text after the closing quote",
+      "skill_md": "---\nname: case-skill\ndescription: \"Use when\" testing.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["SYNTAX"], "warnings": []},
+      "spec": {"errors": ["SYNTAX"], "warnings": []}
+    },
+    {
+      "id": "description-1024",
+      "summary": "description with exactly 1,024 characters",
+      "fill": {"char": "a", "count": 1024},
+      "skill_md": "---\nname: case-skill\ndescription: @@FILL@@\n---\n\n# Case Skill\n",
+      "portable": {"errors": [], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "description-1025",
+      "summary": "description with 1,025 characters",
+      "fill": {"char": "a", "count": 1025},
+      "skill_md": "---\nname: case-skill\ndescription: @@FILL@@\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["DESCRIPTION_LENGTH"], "warnings": []},
+      "spec": {"errors": ["DESCRIPTION_LENGTH"], "warnings": []}
+    },
+    {
+      "id": "uppercase-name",
+      "summary": "uppercase letters in the name",
+      "folder": "Case-Skill",
+      "skill_md": "---\nname: Case-Skill\ndescription: Use when testing the validator.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["NAME_FORMAT"], "warnings": []},
+      "spec": {"errors": ["NAME_FORMAT"], "warnings": []}
+    },
+    {
+      "id": "double-hyphen-name",
+      "summary": "consecutive hyphens in the name",
+      "folder": "case--skill",
+      "skill_md": "---\nname: case--skill\ndescription: Use when testing the validator.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["NAME_FORMAT"], "warnings": []},
+      "spec": {"errors": ["NAME_FORMAT"], "warnings": []}
+    },
+    {
+      "id": "name-65",
+      "summary": "name with 65 characters",
+      "fill": {"char": "n", "count": 65},
+      "folder": "@@FILL@@",
+      "skill_md": "---\nname: @@FILL@@\ndescription: Use when testing the validator.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["NAME_LENGTH"], "warnings": []},
+      "spec": {"errors": ["NAME_LENGTH"], "warnings": []}
+    },
+    {
+      "id": "folder-mismatch",
+      "summary": "name differs from its folder",
+      "skill_md": "---\nname: other-skill\ndescription: Use when testing the validator.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["NAME_FOLDER"], "warnings": []},
+      "spec": {"errors": ["NAME_FOLDER"], "warnings": []}
+    },
+    {
+      "id": "missing-name",
+      "summary": "no name key",
+      "skill_md": "---\ndescription: Use when testing the validator.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["NAME_MISSING"], "warnings": []},
+      "spec": {"errors": ["NAME_MISSING"], "warnings": []}
+    },
+    {
+      "id": "missing-description",
+      "summary": "no description key",
+      "skill_md": "---\nname: case-skill\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["DESCRIPTION_MISSING"], "warnings": []},
+      "spec": {"errors": ["DESCRIPTION_MISSING"], "warnings": []}
+    },
+    {
+      "id": "empty-description",
+      "summary": "description is an empty string",
+      "skill_md": "---\nname: case-skill\ndescription: \"\"\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["DESCRIPTION_EMPTY"], "warnings": []},
+      "spec": {"errors": ["DESCRIPTION_EMPTY"], "warnings": []}
+    },
+    {
+      "id": "angle-brackets",
+      "summary": "angle brackets in the description",
+      "skill_md": "---\nname: case-skill\ndescription: Use when <html> tags appear.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["DESCRIPTION_ANGLE_BRACKETS"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["DESCRIPTION_ANGLE_BRACKETS"]}
+    },
+    {
+      "id": "block-folded",
+      "summary": "folded block scalar",
+      "skill_md": "---\nname: case-skill\ndescription: >\n  Use when testing\n  folded text.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["BLOCK_SCALAR"], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "block-literal",
+      "summary": "literal block scalar",
+      "skill_md": "---\nname: case-skill\ndescription: |\n  Use when testing\n  literal text.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["BLOCK_SCALAR", "MULTILINE_SCALAR"], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "multiline-plain",
+      "summary": "plain value continued on the next line",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing\n  continued text.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["MULTILINE_SCALAR"], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "value-next-line",
+      "summary": "value on the line after its key",
+      "skill_md": "---\nname: case-skill\ndescription:\n  Use when testing the validator.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["MULTILINE_SCALAR"], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "no-frontmatter",
+      "summary": "no opening delimiter",
+      "skill_md": "# Case Skill\n\nUse when testing the validator.\n",
+      "portable": {"errors": ["FRONTMATTER_MISSING"], "warnings": []},
+      "spec": {"errors": ["FRONTMATTER_MISSING"], "warnings": []}
+    },
+    {
+      "id": "unterminated",
+      "summary": "no closing delimiter",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\n",
+      "portable": {"errors": ["FRONTMATTER_UNTERMINATED"], "warnings": []},
+      "spec": {"errors": ["FRONTMATTER_UNTERMINATED"], "warnings": []}
+    },
+    {
+      "id": "delimiter-spacing",
+      "summary": "trailing space after the opening delimiter",
+      "skill_md": "--- \nname: case-skill\ndescription: Use when testing the validator.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["DELIMITER_SPACING"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["DELIMITER_SPACING"]}
+    },
+    {
+      "id": "todo-description",
+      "summary": "quoted [TODO: ...] description",
+      "skill_md": "---\nname: case-skill\ndescription: \"[TODO: describe the skill]\"\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["TODO_PLACEHOLDER"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["TODO_PLACEHOLDER"]}
+    },
+    {
+      "id": "todo-template-list",
+      "summary": "unquoted [TODO: ...] reads as a list",
+      "skill_md": "---\nname: case-skill\ndescription: [TODO: Complete this description]\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["NON_STRING"], "warnings": []},
+      "spec": {"errors": ["NON_STRING"], "warnings": []}
+    },
+    {
+      "id": "todo-body",
+      "summary": "[TODO: ...] line in the body",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\n---\n\n# Case Skill\n\n[TODO: write the steps]\n",
+      "portable": {"errors": ["TODO_PLACEHOLDER"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["TODO_PLACEHOLDER"]}
+    },
+    {
+      "id": "todo-in-fence",
+      "summary": "[TODO: ...] inside a code fence",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\n---\n\n# Case Skill\n\n```text\n[TODO: example]\n```\n",
+      "portable": {"errors": [], "warnings": []},
+      "spec": {"errors": [], "warnings": []}
+    },
+    {
+      "id": "anchor",
+      "summary": "YAML anchor",
+      "skill_md": "---\nname: case-skill\ndescription: &text Use when testing the validator.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["UNSUPPORTED"], "warnings": []},
+      "spec": {"errors": ["UNSUPPORTED"], "warnings": []}
+    },
+    {
+      "id": "quoted-key",
+      "summary": "quoted key",
+      "skill_md": "---\n\"name\": case-skill\ndescription: Use when testing the validator.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["NAME_MISSING", "UNSUPPORTED"], "warnings": []},
+      "spec": {"errors": ["NAME_MISSING", "UNSUPPORTED"], "warnings": []}
+    },
+    {
+      "id": "control-character",
+      "summary": "BEL control character",
+      "skill_md": "---\nname: case-skill\ndescription: Use when\u0007bells ring.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CONTROL_CHARACTER"], "warnings": []},
+      "spec": {"errors": ["CONTROL_CHARACTER"], "warnings": []}
+    },
+    {
+      "id": "line-separator",
+      "summary": "U+2028 inside a value",
+      "skill_md": "---\nname: case-skill\ndescription: Use when\u2028separated.\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["UNICODE_LINE_BREAK"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["UNICODE_LINE_BREAK"]}
+    }
+  ]
+}
