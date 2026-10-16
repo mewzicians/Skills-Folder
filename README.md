@@ -85,8 +85,9 @@ The release package is checked for:
 - deterministic archive inventory; and
 - extraction and clean installation from the archive.
 
-The GitHub workflow runs the package verifier, official skill validator,
-strict auditor, and both bundled self-test suites on Windows.
+The GitHub workflow runs the package verifier, the portable frontmatter
+validator, the strict auditor, the tool tests, and both bundled self-test
+suites on Windows, macOS, and Linux.
 
 ## Repository Layout
 

@@ -1,0 +1,3 @@
+# CI only. The auditor self-test replays the bundled skill-creator validator,
+# which still imports PyYAML. No tool or skill script needs PyYAML at run time.
+pyyaml==6.0.3

@@ -5,55 +5,86 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
 jobs:
   verify:
-    runs-on: windows-latest
+    name: ${{ matrix.os }}, Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.15"]
+        include:
+          - os: ubuntu-latest
+            python: "3.14"
+    defaults:
+      run:
+        shell: bash
 
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: "3.13"
+          persist-credentials: false
 
-      - name: Install validator dependency
-        run: python -m pip install pyyaml
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
 
-      - name: Verify package and manifest
-        shell: pwsh
-        run: ./verify-package.ps1
+      - name: Verify package
+        run: python -B -X warn_default_encoding -W error::EncodingWarning tools/verify_package.py
 
-      - name: Run official validator on every skill
-        shell: pwsh
-        run: |
-          $validator = "skills/game-skill-creator/scripts/quick_validate.py"
-          Get-ChildItem "skills" -Directory | Sort-Object Name | ForEach-Object {
-            python -B $validator $_.FullName
-            if ($LASTEXITCODE -ne 0) {
-              throw "Official validation failed: $($_.Name)"
-            }
-          }
-
-      - name: Run strict static auditor
-        shell: pwsh
-        run: |
-          $auditor = "skills/game-skill-auditor/scripts/audit_skill.py"
-          Get-ChildItem "skills" -Directory | Sort-Object Name | ForEach-Object {
-            python -B $auditor $_.FullName --json --strict
-            if ($LASTEXITCODE -ne 0) {
-              throw "Strict audit failed: $($_.Name)"
-            }
-          }
-
-      - name: Run continuity self-test
+      - name: Validate portable frontmatter
         run: >-
-          python -B
-          skills/game-context-continuity/scripts/continuity_ledger.py
-          self-test
+          python -B -X warn_default_encoding -W error::EncodingWarning
+          tools/validate_skill.py --level portable skills/*/
 
-      - name: Run auditor adversarial self-test
-        run: python -B skills/game-skill-auditor/scripts/self_test.py
+      - name: Run the strict static auditor on every skill
+        run: |
+          status=0
+          for skill in skills/*/; do
+            if ! output=$(python -B -X warn_default_encoding -W error::EncodingWarning \
+                skills/game-skill-auditor/scripts/audit_skill.py "$skill" --json --strict); then
+              echo "$output"
+              echo "::error::Strict audit failed: $skill"
+              status=1
+            fi
+          done
+          exit "$status"
+
+      - name: Run tool tests
+        run: |
+          python -B -X warn_default_encoding -W error::EncodingWarning tests/frontmatter/test_frontmatter.py
+          python -B -X warn_default_encoding -W error::EncodingWarning tests/verify/test_verify_package.py
+
+      - name: Run the continuity self-test
+        run: >-
+          python -B -X warn_default_encoding -W error::EncodingWarning
+          skills/game-context-continuity/scripts/continuity_ledger.py self-test
+
+      - name: Install the CI-only test dependency
+        run: python -m pip install --disable-pip-version-check -r requirements-ci.txt
+
+      - name: Run the auditor adversarial self-test
+        run: >-
+          python -B -X warn_default_encoding -W error::EncodingWarning
+          skills/game-skill-auditor/scripts/self_test.py
+
+      - name: Run the PowerShell package verifier
+        if: runner.os == 'Windows'
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File verify-package.ps1
