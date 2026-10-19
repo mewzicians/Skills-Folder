@@ -13,7 +13,9 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Only a newer push to the same pull request supersedes a run. Pushes to
+  # main and the weekly run must each finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PYTHONDONTWRITEBYTECODE: "1"
