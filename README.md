@@ -45,11 +45,14 @@ The installer writes to `$CODEX_HOME\skills` when `CODEX_HOME` is set and
 otherwise uses `~\.codex\skills`. Existing skill folders are backed up before
 replacement.
 
-Validate the complete package at any time:
+Verify the package at any time with the package verifier:
 
-```powershell
-.\verify-package.ps1
+```text
+python -B tools/verify_package.py
 ```
+
+`verify-package.ps1` is a quicker PowerShell check of skill structure and
+project-neutral terms, not a complete package validation.
 
 ## Adapt It To A Game
 
@@ -94,8 +97,11 @@ suites on Windows, macOS, and Linux.
 ```text
 skills/                    Installable skill folders
 templates/                 Project-specialization profile
+tools/                     Package verifier and frontmatter validator
+tests/                     Tests for the tools
+docs/                      SKILL.md frontmatter schema
 install-skills.ps1         Backup-preserving suite installer
-verify-package.ps1         Standalone package verifier
+verify-package.ps1         Quick PowerShell structure check
 ```
 
 ## License
