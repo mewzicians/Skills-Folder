@@ -498,6 +498,20 @@
       "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nhooks: {PreToolUse: []}\n---\n\n# Case Skill\n",
       "portable": {"errors": ["CLAUDE_ONLY_KEY"], "warnings": []},
       "spec": {"errors": [], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "todo-after-line-separator",
+      "summary": "[TODO: ...] after a U+2028 line separator in the body",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\n---\n\nSee below.\u2028[TODO: finish the steps]\n",
+      "portable": {"errors": ["TODO_PLACEHOLDER"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["TODO_PLACEHOLDER"]}
+    },
+    {
+      "id": "todo-after-form-feed",
+      "summary": "[TODO: ...] after a form feed in the body",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\n---\n\nSee below.\f[TODO: finish the steps]\n",
+      "portable": {"errors": ["TODO_PLACEHOLDER"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["TODO_PLACEHOLDER"]}
     }
   ]
 }

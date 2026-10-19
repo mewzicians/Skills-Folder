@@ -89,7 +89,9 @@ error, because PyYAML would reject it or read it differently.
 
 A line made only of `[TODO: ...]` outside a code fence is an error at the
 portable level and a warning at the spec level. Codex's validator applies the
-same rule.
+same rule. Both split the body into lines with Python's `str.splitlines()`, so
+a vertical tab, form feed, U+001C-U+001E, U+0085, U+2028, or U+2029 also starts
+a new line.
 
 ## Finding Codes
 
@@ -249,3 +251,5 @@ cp1252 fixture, and fails if this table and the code disagree.
 | `impossible-date` | a value PyYAML reads as a date that does not exist | invalid: CLAUDE_ONLY_KEY, UNLOADABLE | invalid: UNLOADABLE; warns CLAUDE_ONLY_KEY |
 | `claude-hooks` | Claude-only hooks with mappings inside sequences | invalid: CLAUDE_ONLY_KEY | valid; warns CLAUDE_ONLY_KEY |
 | `claude-flow-mapping` | a closed flow mapping under a Claude-only key | invalid: CLAUDE_ONLY_KEY | valid; warns CLAUDE_ONLY_KEY |
+| `todo-after-line-separator` | [TODO: ...] after a U+2028 line separator in the body | invalid: TODO_PLACEHOLDER | valid; warns TODO_PLACEHOLDER |
+| `todo-after-form-feed` | [TODO: ...] after a form feed in the body | invalid: TODO_PLACEHOLDER | valid; warns TODO_PLACEHOLDER |

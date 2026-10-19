@@ -1292,26 +1292,32 @@ def _check_fields(values: dict[str, tuple[int, Node]], folder: str | None, add) 
 
 
 def _body_todo(lines: list[str], first_line: int) -> int | None:
-    """Mirror Codex's validator: a [TODO: ...] line outside code fences."""
+    """Mirror Codex's validator: a [TODO: ...] line outside code fences.
+
+    Codex splits the body with str.splitlines(), which also ends a line at
+    \\v, \\f, \\x1c-\\x1e, U+0085, U+2028, and U+2029, so each LF-delimited
+    line is split the same way. Reported line numbers count LF lines.
+    """
     fence_marker: str | None = None
     fence_length = 0
-    for offset, line in enumerate(lines):
-        fence = _FENCE_RE.match(line)
-        if fence:
-            marker = fence.group(1)
-            if fence_marker is None:
-                fence_marker = marker[0]
-                fence_length = len(marker)
-            elif (
-                marker[0] == fence_marker
-                and len(marker) >= fence_length
-                and not fence.group(2).strip()
-            ):
-                fence_marker = None
-                fence_length = 0
-            continue
-        if fence_marker is None and _TODO_LINE_RE.fullmatch(line):
-            return first_line + offset
+    for offset, physical in enumerate(lines):
+        for line in physical.splitlines():
+            fence = _FENCE_RE.match(line)
+            if fence:
+                marker = fence.group(1)
+                if fence_marker is None:
+                    fence_marker = marker[0]
+                    fence_length = len(marker)
+                elif (
+                    marker[0] == fence_marker
+                    and len(marker) >= fence_length
+                    and not fence.group(2).strip()
+                ):
+                    fence_marker = None
+                    fence_length = 0
+                continue
+            if fence_marker is None and _TODO_LINE_RE.fullmatch(line):
+                return first_line + offset
     return None
 
 
