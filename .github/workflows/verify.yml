@@ -81,7 +81,7 @@ jobs:
           skills/game-context-continuity/scripts/continuity_ledger.py self-test
 
       - name: Install the CI-only test dependency
-        run: python -m pip install --disable-pip-version-check -r requirements-ci.txt
+        run: python -m pip install --disable-pip-version-check --require-hashes -r requirements-ci.txt
 
       - name: Compare the frontmatter schema with PyYAML
         env:
