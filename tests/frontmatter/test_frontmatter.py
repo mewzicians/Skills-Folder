@@ -71,7 +71,9 @@ def child_env(**extra: str) -> dict[str, str]:
     return env
 
 
-def run_validator(*arguments: str, **env: str) -> subprocess.CompletedProcess[str]:
+def run_validator(
+    *arguments: str, cwd: Path | None = None, **env: str
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, *CHILD_FLAGS, str(VALIDATOR), *arguments],
         capture_output=True,
@@ -79,6 +81,7 @@ def run_validator(*arguments: str, **env: str) -> subprocess.CompletedProcess[st
         encoding="utf-8",
         errors="replace",
         env=child_env(**env),
+        cwd=cwd,
         check=False,
     )
 
@@ -155,8 +158,41 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(run_validator(invalid).returncode, 1)
         self.assertEqual(run_validator("--level", "spec", invalid).returncode, 0)
         self.assertEqual(run_validator(valid, invalid).returncode, 1)
-        self.assertEqual(run_validator().returncode, 2)
+        self.assertEqual(run_validator("--level").returncode, 2)
         self.assertEqual(run_validator("--level", "strictest", valid).returncode, 2)
+
+    def test_no_path_validates_every_repository_skill(self) -> None:
+        # Run from elsewhere: the default is this repository's skills/, not the cwd's.
+        completed = run_validator("--json", cwd=self.root)
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        payload = json.loads(completed.stdout)
+        expected = sorted(path.name for path in (ROOT / "skills").iterdir() if path.is_dir())
+        self.assertEqual(sorted(Path(item["path"]).name for item in payload["skills"]), expected)
+        self.assertEqual(payload["valid"], len(expected))
+
+    def test_glob_patterns_are_expanded_without_a_shell(self) -> None:
+        # subprocess passes the pattern verbatim, as PowerShell and cmd do.
+        self.case_dir("valid-minimal")
+        self.case_dir("bom")
+        completed = run_validator("--json", str(self.root / "*" / "case-skill"))
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        payload = json.loads(completed.stdout)
+        found = {Path(item["path"]).parent.name: item["valid"] for item in payload["skills"]}
+        self.assertEqual(found, {"valid-minimal": True, "bom": False})
+
+        unmatched = run_validator("--json", str(self.root / "missing-*"))
+        self.assertEqual(unmatched.returncode, 1, unmatched.stderr)
+        codes = [item["code"] for item in json.loads(unmatched.stdout)["skills"][0]["findings"]]
+        self.assertEqual(codes, ["PATH"])
+
+    def test_existing_path_with_glob_characters_is_literal(self) -> None:
+        # As a pattern, 'set[1]' would match 'set1', whose skill is invalid.
+        folder = write_case(self.by_id["valid-minimal"], self.root / "set[1]")
+        write_case(self.by_id["bom"], self.root / "set1")
+        completed = run_validator("--json", str(folder))
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual([item["path"] for item in payload["skills"]], [str(folder)])
 
     def test_json_output(self) -> None:
         completed = run_validator("--json", self.case_dir("crlf"))

@@ -7,9 +7,15 @@ own skill-creator validator. This document defines that frontmatter.
 it with the Python standard library alone: no PyYAML at run time.
 
 ```text
-python -B tools/validate_skill.py --level portable skills/*/
+python -B tools/validate_skill.py
+python -B tools/validate_skill.py --level portable "skills/*"
 python -B tools/validate_skill.py --level spec --json path/to/someone-elses-skill
 ```
+
+With no path, the validator checks every folder in this repository's
+`skills/` at the portable level. It expands glob patterns itself, so these
+commands work unchanged in PowerShell, cmd, and POSIX shells; quote a pattern
+so that every shell passes it through as written.
 
 Exit codes: `0` every skill is valid, `1` at least one is invalid, `2` usage
 error, `3` internal error. Python 3.11 or later.

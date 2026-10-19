@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Validate SKILL.md frontmatter against docs/SKILL_SCHEMA.md.
 
+With no path, every folder in this repository's skills/ is checked. Glob
+patterns such as "skills/*" are expanded here rather than by the shell, so
+the same command works in PowerShell, cmd, and POSIX shells.
+
 Exit codes: 0 every skill is valid, 1 at least one skill is invalid,
 2 usage error, 3 internal error. Standard library only.
 """
@@ -12,12 +16,17 @@ import sys
 sys.dont_write_bytecode = True
 
 import argparse
+import glob
 import importlib.util
 import json
+import os
 from pathlib import Path
 from types import ModuleType
 
-SCHEMA_PATH = Path(__file__).resolve().parent / "lib" / "skill_frontmatter.py"
+TOOLS = Path(__file__).resolve().parent
+SCHEMA_PATH = TOOLS / "lib" / "skill_frontmatter.py"
+SKILLS_ROOT = TOOLS.parent / "skills"
+GLOB_CHARACTERS = frozenset("*?[")
 
 
 def load_schema() -> ModuleType:
@@ -49,10 +58,44 @@ def build_parser(levels: tuple[str, ...]) -> argparse.ArgumentParser:
             "others and reports portability concerns as warnings."
         )
     )
-    parser.add_argument("skills", nargs="+", metavar="SKILL_DIR")
+    parser.add_argument(
+        "skills",
+        nargs="*",
+        metavar="SKILL_DIR",
+        help=(
+            "a skill folder or a glob pattern such as 'skills/*' "
+            "(default: every folder in this repository's skills/)"
+        ),
+    )
     parser.add_argument("--level", choices=levels, default="portable")
     parser.add_argument("--json", action="store_true", dest="as_json")
     return parser
+
+
+def display(path: Path) -> str:
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
+def skill_paths(arguments: list[str]) -> list[str]:
+    """Expand glob patterns; with no arguments, list this repository's skills."""
+    if not arguments:
+        return [
+            display(path)
+            for path in sorted(SKILLS_ROOT.iterdir())
+            if path.is_dir() and not path.name.startswith(".")
+        ]
+    paths: list[str] = []
+    for argument in arguments:
+        if not GLOB_CHARACTERS.intersection(argument) or os.path.lexists(argument):
+            paths.append(argument)
+            continue
+        matches = sorted(match for match in glob.glob(argument) if os.path.isdir(match))
+        # A pattern that matches no folder is reported as a missing path.
+        paths.extend(matches or [argument])
+    return paths
 
 
 def render_text(reports: list) -> str:
@@ -83,7 +126,9 @@ def main(argv: list[str] | None = None) -> int:
     configure_stdio()
     schema = load_schema()
     args = build_parser(schema.LEVELS).parse_args(argv)
-    reports = [schema.validate_skill_dir(path, level=args.level) for path in args.skills]
+    reports = [
+        schema.validate_skill_dir(path, level=args.level) for path in skill_paths(args.skills)
+    ]
     if args.as_json:
         payload = {
             "level": args.level,
