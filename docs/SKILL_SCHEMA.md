@@ -28,7 +28,16 @@ error, `3` internal error. Python 3.11 or later.
 | `spec` | Skills written by others. | Agent Skills specification violations and invalid YAML are errors; portability problems are warnings. |
 
 The portable level is the intersection of what all four consumers accept, so a
-skill that passes it also loads in each of them.
+skill that passes it also loads in each of them, with one exception that no
+file can avoid: Codex's `quick_validate.py` reads `SKILL.md` in the locale's
+default encoding. Where that is not UTF-8, such as cp1252 on many Windows
+systems, it misreads non-ASCII text and can crash on it. `Á`, for example, is
+UTF-8 `C3 81`, and cp1252 has no character for `81`, so the validator raises
+`UnicodeDecodeError`. Run Codex's validator in UTF-8 mode:
+
+```text
+python -X utf8 path/to/quick_validate.py path/to/skill
+```
 
 ## File Rules
 
