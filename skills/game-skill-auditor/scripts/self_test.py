@@ -1554,6 +1554,35 @@ def wrong_mutated_skill_identity(manifest: dict) -> None:
         "wrong identity mutation result",
         actor="contract-judge",
         artifact=str(replacement),
+        created_at="2026-08-14T00:06:00Z",
+    )
+
+
+def bom_mutated_package(manifest: dict) -> None:
+    """Prepend a UTF-8 BOM to a mutated SKILL.md and leave all else valid.
+
+    Codex finds no frontmatter after a BOM, so the package has no name and
+    cannot preserve the target's identity.
+    """
+    item = manifest["mutations"][0]
+    source = Path(item["mutated_target"])
+    bom_package = EVIDENCE_DIR / "bom-mutation-package"
+    if bom_package.exists():
+        shutil.rmtree(bom_package)
+    shutil.copytree(source, bom_package)
+    skill = bom_package / "SKILL.md"
+    skill.write_bytes(b"\xef\xbb\xbf" + skill.read_bytes())
+    item["mutated_target"] = str(bom_package)
+    item["mutated_sha256"] = package_digest(bom_package)
+    result_path = Path(item["provenance"]["artifact"])
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["mutated_sha256"] = item["mutated_sha256"]
+    replacement = write_json_artifact("bom-mutation-result.json", payload)
+    item["provenance"] = provenance(
+        "BOM mutation result",
+        actor="contract-judge",
+        artifact=str(replacement),
+        created_at="2026-08-14T00:06:00Z",
     )
 
 
@@ -2103,6 +2132,12 @@ PROBES: list[Probe] = [
         "Behaviorally Tested",
         "A mutation package must preserve the target skill identity.",
         wrong_mutated_skill_identity,
+    ),
+    (
+        "bom_mutated_package",
+        "Behaviorally Tested",
+        "A BOM hides a mutated package's name, so it cannot preserve the target identity.",
+        bom_mutated_package,
     ),
     (
         "duplicate_role_prompt_content",

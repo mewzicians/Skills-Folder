@@ -197,8 +197,11 @@ def package_has_lineage(target: Path, mutated: Path) -> bool:
         for relative, digest in target_files.items()
     )
     allowed_changes = max(1, len(target_files) // 4)
+    target_name = skill_package_name(target)
+    # An empty name, such as one a BOM hides, never establishes lineage.
     return (
-        skill_package_name(target) == skill_package_name(mutated)
+        bool(target_name)
+        and skill_package_name(mutated) == target_name
         and unchanged >= len(target_files) - allowed_changes
         and len(mutated_files) >= len(target_files) - allowed_changes
     )
@@ -621,6 +624,7 @@ def valid_mutation_result(
     payload_changed_paths = normalized_path_set(
         payload.get("changed_paths") if isinstance(payload, dict) else None
     )
+    target_skill_name = skill_package_name(target_path)
     target_files = package_files(target_path)
     mutated_files = (
         package_files(mutated_package)
@@ -653,7 +657,8 @@ def valid_mutation_result(
         mutated_package is not None
         and mutated_package != target_path
         and normalized(item.get("mutated_sha256")) != target_digest
-        and skill_package_name(mutated_package) == skill_package_name(target_path)
+        and bool(target_skill_name)
+        and skill_package_name(mutated_package) == target_skill_name
         and package_has_lineage(target_path, mutated_package)
         and output_path is not None
         and isinstance(payload, dict)
