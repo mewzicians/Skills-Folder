@@ -15,6 +15,7 @@ at each level, so the two levels can never drift apart silently.
 
 from __future__ import annotations
 
+import datetime
 import os
 import re
 from dataclasses import dataclass, field
@@ -67,6 +68,7 @@ RULES: dict[str, tuple[str | None, str | None]] = {
     "TAB_INDENT": ("error", "error"),
     "SYNTAX": ("error", "error"),
     "UNSUPPORTED": ("error", "error"),
+    "UNLOADABLE": ("error", "error"),
     "DUPLICATE_KEY": ("error", "error"),
     "UNKNOWN_KEY": ("error", "warning"),
     "COMPATIBILITY_KEY": ("error", None),
@@ -94,9 +96,10 @@ RULES: dict[str, tuple[str | None, str | None]] = {
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 _KEY_RE = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_.-]*):(.*)")
 _HEADER_RE = re.compile(r"([|>])([1-9][+-]?|[+-][1-9]?)?(?: +(?:#.*)?)?")
-_LENIENT_IGNORED = frozenset(
-    {"UNSUPPORTED", "BLOCK_SCALAR", "MULTILINE_SCALAR", "COMMENT_IN_VALUE"}
-)
+# Portability findings that keys outside the spec are exempt from. Invalid or
+# unsupported YAML is never exempt: PyYAML would reject it or read it
+# differently, so it stays an error for every key.
+_LENIENT_IGNORED = frozenset({"BLOCK_SCALAR", "MULTILINE_SCALAR", "COMMENT_IN_VALUE"})
 _FENCE_RE = re.compile(r"^[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+)?(`{3,}|~{3,})(.*)$")
 _TODO_LINE_RE = re.compile(r"[ ]{0,3}\[TODO:[^\n]*\][ \t]*")
 
@@ -141,6 +144,15 @@ _IMPLICIT_TYPES = (
     ("merge or value indicator", re.compile(r"<<|=")),
 )
 
+# PyYAML's own timestamp pattern, used to find dates it cannot construct.
+_TIMESTAMP_PARTS = re.compile(
+    r"(?P<year>[0-9]{4})-(?P<month>[0-9]{1,2})-(?P<day>[0-9]{1,2})"
+    r"(?:(?:[Tt]|[ \t]+)(?P<hour>[0-9]{1,2}):(?P<minute>[0-9]{2}):(?P<second>[0-9]{2})"
+    r"(?:\.(?P<fraction>[0-9]*))?"
+    r"(?:[ \t]*(?P<tz>Z|(?P<tz_sign>[-+])(?P<tz_hour>[0-9]{1,2})"
+    r"(?::(?P<tz_minute>[0-9]{2}))?))?)?"
+)
+
 _SIMPLE_ESCAPES = {
     "0": "\0",
     "a": "\a",
@@ -170,6 +182,52 @@ def resolve_plain(text: str) -> str:
         if pattern.fullmatch(text):
             return kind
     return "string"
+
+
+def unloadable(text: str) -> str | None:
+    """Explain why PyYAML's safe loader cannot construct a plain scalar.
+
+    Returns None when it can. PyYAML raises a ConstructorError for '=' and
+    '<<' and a ValueError, which Codex's validator does not catch, for an
+    impossible date or a binary or hexadecimal integer with no digits.
+    """
+    kind = resolve_plain(text)
+    if kind == "merge or value indicator":
+        role = "merge" if text == "<<" else "value"
+        return (
+            f"A plain {text!r} is YAML 1.1's {role} indicator, which PyYAML's safe "
+            "loader cannot load. Quote it."
+        )
+    if kind == "integer" and re.fullmatch(r"[-+]?0[bx]_+", text):
+        return f"PyYAML reads {text!r} as an integer with no digits and crashes. Quote it."
+    match = _TIMESTAMP_PARTS.fullmatch(text) if kind == "timestamp" else None
+    if match:
+        parts = match.groupdict()
+        try:
+            if parts["hour"] is None:
+                datetime.date(int(parts["year"]), int(parts["month"]), int(parts["day"]))
+            else:
+                tzinfo = None
+                if parts["tz_sign"]:
+                    delta = datetime.timedelta(
+                        hours=int(parts["tz_hour"]), minutes=int(parts["tz_minute"] or 0)
+                    )
+                    tzinfo = datetime.timezone(-delta if parts["tz_sign"] == "-" else delta)
+                datetime.datetime(
+                    int(parts["year"]),
+                    int(parts["month"]),
+                    int(parts["day"]),
+                    int(parts["hour"]),
+                    int(parts["minute"]),
+                    int(parts["second"]),
+                    tzinfo=tzinfo,
+                )
+        except (OverflowError, ValueError):
+            return (
+                f"PyYAML reads {text!r} as a date or time that does not exist and "
+                "crashes. Quote it."
+            )
+    return None
 
 
 @dataclass
@@ -314,41 +372,189 @@ def _scan_quoted(text: str) -> tuple[str | None, int, str | None]:
     return None, len(text), "unterminated"
 
 
-def _flow_end(text: str) -> int | None:
-    """Return the index after a one-line flow collection, or None."""
-    depth = 0
-    quote = ""
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if quote:
-            if quote == '"' and char == "\\":
-                index += 2
+class _FlowError(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+class _FlowUnclosed(Exception):
+    """The flow collection, or a quoted value inside it, continues past its line."""
+
+
+_FLOW_SPACE = (" ", "\t")
+_FLOW_VALUE_END = ("", " ", "\t", ",", "[", "]", "{", "}")
+
+
+class _FlowParser:
+    """Parse a flow collection that opens and closes on one line.
+
+    It follows PyYAML's scanner and parser in the flow context, so every
+    collection it returns loads the same way in PyYAML. The one exception is
+    a tab, which it reads as a space as YAML 1.2 does; the TAB finding
+    reports it separately.
+    """
+
+    def __init__(self, text: str, line: int) -> None:
+        self.text = text
+        self.pos = 0
+        self.line = line
+        self.problems: list[tuple[str, str]] = []
+        self.depth = 0
+
+    def peek(self, offset: int = 0) -> str:
+        index = self.pos + offset
+        return self.text[index] if index < len(self.text) else ""
+
+    def skip(self) -> str:
+        """Skip spaces and return the next character; the line must go on."""
+        while self.peek() in _FLOW_SPACE:
+            self.pos += 1
+        char = self.peek()
+        if not char or char == "#":
+            # PyYAML reads the rest of the line as a comment and keeps
+            # looking for the end of the collection on the following lines.
+            raise _FlowUnclosed
+        return char
+
+    def collection(self) -> Sequence | Mapping:
+        opener = self.text[self.pos]
+        closer = "]" if opener == "[" else "}"
+        self.depth += 1
+        if self.depth > MAX_NESTING:
+            raise _FlowError("UNSUPPORTED", "Nesting is deeper than the supported limit.")
+        self.pos += 1
+        items: list[Node] = []
+        entries: dict[str, tuple[int, Node]] = {}
+        first = True
+        while True:
+            char = self.skip()
+            if char == closer:
+                self.pos += 1
+                break
+            if not first:
+                if char != ",":
+                    raise _FlowError(
+                        "SYNTAX", f"Expected ',' or '{closer}' in a flow collection, found '{char}'."
+                    )
+                self.pos += 1
+                char = self.skip()
+                if char == closer:
+                    self.pos += 1
+                    break
+            first = False
+            if char in ",]}":
+                raise _FlowError("SYNTAX", f"Unexpected '{char}' in a flow collection.")
+            if char == "?":
+                raise _FlowError(
+                    "UNSUPPORTED", "Explicit keys ('?') in a flow collection are outside the supported subset."
+                )
+            if char == ":":
+                raise _FlowError("SYNTAX", "A flow collection entry has an empty key.")
+            key = self.node()
+            pair = self.skip() == ":"
+            value: Node = Scalar("", "plain", self.line, "null")
+            if pair:
+                self.pos += 1
+                if self.skip() not in ",]}":
+                    value = self.checked(self.node())
+            if opener == "[" and not pair:
+                items.append(self.checked(key))
                 continue
-            if char == quote:
-                if quote == "'" and text[index + 1 : index + 2] == "'":
-                    index += 2
-                    continue
-                quote = ""
-        elif char in "\"'":
-            quote = char
-        elif char in "[{":
-            depth += 1
-        elif char in "]}":
-            depth -= 1
-            if depth == 0:
-                return index + 1
-        index += 1
-    return None
+            name = self.key_text(key)
+            if opener == "[":
+                items.append(Mapping({name: (self.line, value)}, self.line))
+                continue
+            if name in entries:
+                self.problems.append(("DUPLICATE_KEY", f"Duplicate key '{name}'."))
+            entries[name] = (self.line, value)
+        self.depth -= 1
+        if opener == "[":
+            return Sequence(items, self.line)
+        return Mapping(entries, self.line)
+
+    def key_text(self, key: Node) -> str:
+        if not isinstance(key, Scalar):
+            raise _FlowError(
+                "UNSUPPORTED", "Collections used as keys are outside the supported subset."
+            )
+        if key.style == "plain":
+            if key.value == "<<":
+                raise _FlowError("UNSUPPORTED", "Merge keys ('<<') are outside the supported subset.")
+            problem = unloadable(key.value) if key.value != "=" else None
+            if problem:
+                self.problems.append(("UNLOADABLE", problem))
+        return key.value
+
+    def checked(self, node: Node) -> Node:
+        if isinstance(node, Scalar) and node.style == "plain":
+            problem = unloadable(node.value)
+            if problem:
+                self.problems.append(("UNLOADABLE", problem))
+                return Opaque("unloadable", self.line)
+        return node
+
+    def node(self) -> Node:
+        char = self.peek()
+        if char in ("[", "{"):
+            return self.collection()
+        if char in ('"', "'"):
+            value, end, problem = _scan_quoted(self.text[self.pos :])
+            if problem == "unterminated":
+                raise _FlowUnclosed
+            if problem:
+                raise _FlowError("SYNTAX", f"Invalid double-quoted value: {problem}.")
+            self.pos += end
+            return Scalar(value or "", "double" if char == '"' else "single", self.line)
+        if char in ("&", "*", "!"):
+            raise _FlowError(
+                "UNSUPPORTED",
+                "Anchors ('&'), aliases ('*'), and tags ('!') are outside the supported subset.",
+            )
+        if char in ("?", ":", "|", ">", "%", "@", "`") or (
+            char == "-" and self.peek(1) in ("", " ", "\t")
+        ):
+            raise _FlowError(
+                "SYNTAX", f"A value in a flow collection cannot start with '{char}'; quote it."
+            )
+        return self.plain()
+
+    def plain(self) -> Scalar:
+        chunks: list[str] = []
+        spaces = ""
+        while self.peek() != "#":
+            start = self.pos
+            while True:
+                char = self.peek()
+                if char in _FLOW_VALUE_END or char == "?":
+                    break
+                if char == ":" and self.peek(1) in _FLOW_VALUE_END:
+                    break
+                self.pos += 1
+            if self.pos == start:
+                break
+            chunks.extend((spaces, self.text[start : self.pos]))
+            mark = self.pos
+            while self.peek() in _FLOW_SPACE:
+                self.pos += 1
+            spaces = self.text[mark : self.pos]
+            if not spaces:
+                break
+        value = "".join(chunks)
+        return Scalar(value, "plain", self.line, resolve_plain(value))
 
 
 class _Parser:
     """Line-oriented parser for the frontmatter YAML subset."""
 
     def __init__(self, lines: list[str], first_line: int) -> None:
-        self.lines = lines
+        # A copy: sequence entries that hold a collection are rewritten in place.
+        self.lines = list(lines)
         self.first_line = first_line
         self.raw: list[tuple[str, int | None, str]] = []
+        # True while parsing the value of a top-level key outside the spec.
+        self.lenient = False
 
     def lineno(self, index: int) -> int:
         return self.first_line + index
@@ -402,7 +608,7 @@ class _Parser:
                 "Expected 'key: value'; found a sequence entry. Frontmatter must be a mapping.",
             )
         elif content == "?" or content.startswith(("? ", "?\t")):
-            self.add("SYNTAX", index, "Complex mapping keys ('? ') are not allowed here.")
+            self.add("UNSUPPORTED", index, "Complex mapping keys ('? ') are outside the supported subset.")
         elif content == "..." or content.startswith(("... ", "...\t")):
             self.add("UNSUPPORTED", index, "YAML document markers are not allowed inside frontmatter.")
         elif re.match(r"[^:#]*[^\s:#][ \t]+:(?:[ \t]|$)", content):
@@ -464,6 +670,9 @@ class _Parser:
             key_line = self.lineno(index)
             if key in entries:
                 self.add("DUPLICATE_KEY", index, f"Duplicate key '{key}'.")
+            problem = unloadable(key)
+            if problem:
+                self.add("UNLOADABLE", index, problem)
             lenient = depth == 0 and key not in SPEC_KEYS
             node, index = self.value(index, rest, indent, lenient, depth)
             entries[key] = (key_line, node)
@@ -476,13 +685,17 @@ class _Parser:
         if "\t" in rest[: len(rest) - len(text)]:
             self.add("TAB", index, "A tab separates a key from its value; use a space.")
         mark = len(self.raw)
+        outer = self.lenient
+        self.lenient = outer or lenient
         if not text or text.startswith("#"):
             node, end = self.nested(index, indent, depth)
         else:
             node, end = self.inline(index, text, indent, depth)
+        self.lenient = outer
         if lenient:
-            # Keys outside the spec are checked for YAML syntax only; the
-            # subset's limits and portability rules do not apply to them.
+            # Keys outside the spec may use block scalars, multi-line plain
+            # values, flow mappings, and ' #' comments, but their YAML must
+            # still be valid and loadable.
             self.raw[mark:] = [
                 item for item in self.raw[mark:] if item[0] not in _LENIENT_IGNORED
             ]
@@ -529,13 +742,19 @@ class _Parser:
         if first in "\"'":
             value, end, problem = _scan_quoted(text)
             if problem == "unterminated":
+                close = self.quote_close(index, text)
+                if close is None:
+                    # PyYAML reads to the end of the frontmatter, then fails.
+                    self.add("SYNTAX", index, "This quoted value is never closed.")
+                    return Opaque("invalid", line), len(self.lines)
                 self.add(
                     "UNSUPPORTED",
                     index,
-                    "Quoted values must close on the same line; multi-line quoted scalars "
-                    "are outside the supported subset.",
+                    f"This quoted value runs on to line {self.lineno(close)}, so YAML reads "
+                    "every line up to the closing quote as part of it. Multi-line quoted "
+                    "values are outside the supported subset; close the quote on this line.",
                 )
-                return Opaque("unterminated quote", line), self.skip_deeper(index + 1, indent)
+                return Opaque("unsupported", line), close + 1
             if problem:
                 self.add("SYNTAX", index, f"Invalid double-quoted value: {problem}.")
                 return Opaque("invalid", line), self.after_inline(index, indent)
@@ -546,22 +765,7 @@ class _Parser:
             style = "double" if first == '"' else "single"
             return Scalar(value or "", style, line), self.after_inline(index, indent)
         if first in "[{":
-            end = _flow_end(text)
-            kind = "flow sequence" if first == "[" else "flow mapping"
-            if end is None:
-                self.add("UNSUPPORTED", index, f"A {kind} must close on the same line.")
-                return Opaque(kind, line), self.skip_deeper(index + 1, indent)
-            tail = text[end:]
-            remainder = tail.lstrip(" \t")
-            if remainder and not (remainder.startswith("#") and len(tail) > len(remainder)):
-                self.add("SYNTAX", index, f"Unexpected text after the {kind}.")
-            if first == "{":
-                self.add(
-                    "UNSUPPORTED",
-                    index,
-                    "Flow mappings ('{...}') are outside the supported subset.",
-                )
-            return Opaque(kind, line), self.after_inline(index, indent)
+            return self.flow(index, text, indent)
         if first in "&*!":
             self.add(
                 "UNSUPPORTED",
@@ -576,6 +780,97 @@ class _Parser:
             self.add("SYNTAX", index, f"A value cannot start with '{first} '; quote the value.")
             return Opaque("invalid", line), self.skip_deeper(index + 1, indent)
         return self.plain(index, text, indent)
+
+    def flow(self, index: int, text: str, indent: int) -> tuple[Node, int]:
+        line = self.lineno(index)
+        kind = "flow sequence" if text[0] == "[" else "flow mapping"
+        parser = _FlowParser(text, line)
+        try:
+            node = parser.collection()
+        except _FlowUnclosed:
+            close = self.flow_close(index, text)
+            if close is None:
+                # PyYAML reads to the end of the frontmatter, then fails.
+                self.add("SYNTAX", index, f"This {kind} is never closed.")
+                return Opaque("invalid", line), len(self.lines)
+            self.add(
+                "UNSUPPORTED",
+                index,
+                f"This {kind} runs on to line {self.lineno(close)}; flow collections "
+                "that span lines are outside the supported subset.",
+            )
+            return Opaque("unsupported", line), close + 1
+        except _FlowError as error:
+            self.add(error.code, index, error.message)
+            failed = "invalid" if error.code == "SYNTAX" else "unsupported"
+            return Opaque(failed, line), self.skip_deeper(index + 1, indent)
+        for code, message in parser.problems:
+            self.add(code, index, message)
+        tail = text[parser.pos :]
+        remainder = tail.lstrip(" \t")
+        if remainder and not (remainder.startswith("#") and len(tail) > len(remainder)):
+            self.add("SYNTAX", index, f"Unexpected text after the {kind}.")
+        if isinstance(node, Mapping) and not self.lenient:
+            self.add(
+                "UNSUPPORTED",
+                index,
+                "Flow mappings ('{...}') are outside the supported subset for the keys "
+                "the spec defines; write a block mapping.",
+            )
+            return Opaque("flow mapping", line), self.after_inline(index, indent)
+        return node, self.after_inline(index, indent)
+
+    def quote_close(self, index: int, text: str) -> int | None:
+        """Return the line on which a quoted value that spans lines closes."""
+        quote = text[0]
+        for cursor in range(index, len(self.lines)):
+            line = text[1:] if cursor == index else self.lines[cursor]
+            position = 0
+            while position < len(line):
+                char = line[position]
+                if quote == '"' and char == "\\":
+                    position += 2
+                    continue
+                if char == quote:
+                    if quote == "'" and line[position + 1 : position + 2] == "'":
+                        position += 2
+                        continue
+                    return cursor
+                position += 1
+        return None
+
+    def flow_close(self, index: int, text: str) -> int | None:
+        """Return the line on which a flow collection that spans lines closes."""
+        depth = 0
+        quote = ""
+        for cursor in range(index, len(self.lines)):
+            line = text if cursor == index else self.lines[cursor]
+            previous = " "
+            position = 0
+            while position < len(line):
+                char = line[position]
+                if quote:
+                    if quote == '"' and char == "\\":
+                        position += 2
+                        continue
+                    if char == quote:
+                        if quote == "'" and line[position + 1 : position + 2] == "'":
+                            position += 2
+                            continue
+                        quote = ""
+                elif char == "#" and previous in " \t,[{":
+                    break
+                elif char in "\"'" and previous in " \t,[{":
+                    quote = char
+                elif char in "[{":
+                    depth += 1
+                elif char in "]}":
+                    depth -= 1
+                    if depth == 0:
+                        return cursor
+                previous = char
+                position += 1
+        return None
 
     def after_inline(self, index: int, indent: int) -> int:
         """Reject deeper lines that follow a value that is already complete."""
@@ -640,6 +935,10 @@ class _Parser:
                 index,
                 "The value continues on the next line; keep it on one line.",
             )
+        problem = unloadable(value)
+        if problem:
+            self.add("UNLOADABLE", index, problem)
+            return Opaque("unloadable", self.lineno(index)), end
         return Scalar(value, "plain", self.lineno(index), resolve_plain(value)), end
 
     def block_breaks(self, index: int, indent: int) -> tuple[list[str], int, bool]:
@@ -753,25 +1052,30 @@ class _Parser:
             if not text or text.startswith("#"):
                 deeper = self.next_content(index + 1)
                 if deeper is not None and _leading_spaces(self.lines[deeper]) > indent:
-                    self.add(
-                        "UNSUPPORTED",
-                        index,
-                        "Nested collections inside a sequence are outside the supported subset.",
-                    )
-                    items.append(Opaque("nested", self.lineno(index)))
-                    index = self.skip_deeper(index + 1, indent)
+                    node, index = self.nested(index, indent, depth)
+                    items.append(node)
                     continue
                 items.append(Scalar("", "plain", self.lineno(index), "null"))
                 index += 1
                 continue
-            if self.key_match(text):
-                self.add(
-                    "UNSUPPORTED",
-                    index,
-                    "Mappings inside a sequence are outside the supported subset.",
-                )
-                items.append(Opaque("nested", self.lineno(index)))
-                index = self.skip_deeper(index + 1, indent)
+            if self.key_match(text) or _is_dash(text):
+                if depth >= MAX_NESTING:
+                    self.add("UNSUPPORTED", index, "Nesting is deeper than the supported limit.")
+                    items.append(Opaque("nested", self.lineno(index)))
+                    index = self.skip_deeper(index + 1, indent)
+                    continue
+                # '- key: value' starts a mapping, and '- - item' a sequence,
+                # at the column after the dash. Blank out the dash so the
+                # nested parser sees plain indentation.
+                item_line = self.lineno(index)
+                column = len(line) - len(text)
+                self.lines[index] = " " * column + text
+                if _is_dash(text):
+                    node, index = self.sequence(index, column, indent, depth + 1)
+                else:
+                    entries, index = self.mapping(index, column, indent, depth + 1)
+                    node = Mapping(entries, item_line)
+                items.append(node)
                 continue
             node, index = self.inline(index, text, indent, depth)
             items.append(node)
@@ -820,7 +1124,7 @@ def _string(node: Node | None) -> str | None:
 
 
 # Opaque kinds whose problem the parser has already reported.
-_REPORTED_KINDS = frozenset({"invalid", "unsupported", "unterminated quote", "flow mapping"})
+_REPORTED_KINDS = frozenset({"invalid", "unsupported", "unloadable", "flow mapping"})
 _COLLECTION_KINDS = frozenset({"flow sequence", "flow mapping", "nested"})
 
 
@@ -954,7 +1258,7 @@ def _check_fields(values: dict[str, tuple[int, Node]], folder: str | None, add) 
 
     if "allowed-tools" in values:
         line, node = values["allowed-tools"]
-        if _string(node) is None:
+        if _string(node) is None and not _already_reported(node):
             add(
                 "ALLOWED_TOOLS_FORMAT",
                 line,

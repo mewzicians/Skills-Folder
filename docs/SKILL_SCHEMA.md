@@ -67,15 +67,23 @@ The parser reads a deliberately small YAML subset:
 - Full-line comments are allowed, and so is a comment after a quoted value. A
   ` #` inside a plain value is rejected, because YAML silently drops the rest of
   the line.
-- Neither level supports anchors, aliases, tags, flow mappings, multi-line
-  quoted values, quoted or complex keys, or document markers. Each is reported
-  as `UNSUPPORTED`, never accepted silently.
+- Neither level supports anchors, aliases, tags, multi-line quoted values, flow
+  collections that span lines, quoted or complex keys, or document markers.
+  Each is reported as `UNSUPPORTED`, never accepted silently, under every key.
+- A quote, `[`, or `{` that never closes is a `SYNTAX` error. A plain value
+  that PyYAML's safe loader cannot construct, such as `=`, `<<`, or the
+  impossible date `2026-02-30`, is an `UNLOADABLE` error wherever it appears,
+  including inside a list.
 
 The spec level also parses literal (`|`) and folded (`>`) block scalars with
 every chomping and indentation indicator, plain values that continue onto later
-lines, values that start on the line after their key, block sequences, and
-one-line flow sequences (accepted without inspecting their items). Values of
-keys outside the specification are checked for YAML syntax only.
+lines, values that start on the line after their key, block sequences
+(including sequences of mappings, such as Claude Code's `hooks`), and one-line
+flow sequences, whose items it reads exactly as PyYAML does. Flow mappings
+(`{...}`) are rejected under the keys the specification defines and accepted,
+on one line, under any other key. Keys outside the specification are exempt
+from portability rules only: invalid or unsupported YAML under them is still an
+error, because PyYAML would reject it or read it differently.
 
 ## Body
 
@@ -100,8 +108,9 @@ same rule.
 | `DELIMITER_SPACING` | error | warning | Trailing whitespace on a `---` delimiter. |
 | `TAB` | error | warning | A tab inside the frontmatter. |
 | `TAB_INDENT` | error | error | A tab used as indentation. |
-| `SYNTAX` | error | error | Invalid YAML, such as an unquoted `: ` or text after a closing quote. |
+| `SYNTAX` | error | error | Invalid YAML, such as an unquoted `: `, text after a closing quote, or a quote or bracket that never closes. |
 | `UNSUPPORTED` | error | error | Valid YAML outside the supported subset. |
+| `UNLOADABLE` | error | error | A plain value PyYAML's safe loader cannot construct, such as `=`, `<<`, or `2026-02-30`. |
 | `DUPLICATE_KEY` | error | error | A key appears twice in one mapping. |
 | `UNKNOWN_KEY` | error | warning | A key no schema defines. |
 | `COMPATIBILITY_KEY` | error | not reported | The `compatibility` key. |
@@ -228,3 +237,15 @@ cp1252 fixture, and fails if this table and the code disagree.
 | `quoted-key` | quoted key | invalid: NAME_MISSING, UNSUPPORTED | invalid: NAME_MISSING, UNSUPPORTED |
 | `control-character` | BEL control character | invalid: CONTROL_CHARACTER | invalid: CONTROL_CHARACTER |
 | `line-separator` | U+2028 inside a value | invalid: UNICODE_LINE_BREAK | valid; warns UNICODE_LINE_BREAK |
+| `swallowing-quote` | a quote that closes lines later swallows the keys between | invalid: CLAUDE_ONLY_KEY, DESCRIPTION_MISSING, NAME_MISSING, UNSUPPORTED | invalid: DESCRIPTION_MISSING, NAME_MISSING, UNSUPPORTED; warns CLAUDE_ONLY_KEY |
+| `unterminated-quote` | a quote that never closes | invalid: CLAUDE_ONLY_KEY, SYNTAX | invalid: SYNTAX; warns CLAUDE_ONLY_KEY |
+| `unclosed-flow` | a flow sequence that never closes | invalid: CLAUDE_ONLY_KEY, SYNTAX | invalid: SYNTAX; warns CLAUDE_ONLY_KEY |
+| `multiline-flow` | a flow sequence that spans lines | invalid: CLAUDE_ONLY_KEY, UNSUPPORTED | invalid: UNSUPPORTED; warns CLAUDE_ONLY_KEY |
+| `claude-alias` | an undefined alias under a Claude-only key | invalid: CLAUDE_ONLY_KEY, UNSUPPORTED | invalid: UNSUPPORTED; warns CLAUDE_ONLY_KEY |
+| `claude-tag` | a tag under a Claude-only key | invalid: CLAUDE_ONLY_KEY, UNSUPPORTED | invalid: UNSUPPORTED; warns CLAUDE_ONLY_KEY |
+| `flow-alias-item` | an unquoted glob that YAML reads as an alias | invalid: CLAUDE_ONLY_KEY, UNSUPPORTED | invalid: UNSUPPORTED; warns CLAUDE_ONLY_KEY |
+| `allowed-tools-equals` | allowed-tools is YAML's value indicator '=' | invalid: ALLOWED_TOOLS_KEY, UNLOADABLE | invalid: UNLOADABLE |
+| `allowed-tools-list-merge` | an allowed-tools list item is YAML's merge indicator '<<' | invalid: ALLOWED_TOOLS_KEY, UNLOADABLE | invalid: UNLOADABLE; warns ALLOWED_TOOLS_FORMAT |
+| `impossible-date` | a value PyYAML reads as a date that does not exist | invalid: CLAUDE_ONLY_KEY, UNLOADABLE | invalid: UNLOADABLE; warns CLAUDE_ONLY_KEY |
+| `claude-hooks` | Claude-only hooks with mappings inside sequences | invalid: CLAUDE_ONLY_KEY | valid; warns CLAUDE_ONLY_KEY |
+| `claude-flow-mapping` | a closed flow mapping under a Claude-only key | invalid: CLAUDE_ONLY_KEY | valid; warns CLAUDE_ONLY_KEY |

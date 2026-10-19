@@ -414,6 +414,90 @@
       "skill_md": "---\nname: case-skill\ndescription: Use when\u2028separated.\n---\n\n# Case Skill\n",
       "portable": {"errors": ["UNICODE_LINE_BREAK"], "warnings": []},
       "spec": {"errors": [], "warnings": ["UNICODE_LINE_BREAK"]}
+    },
+    {
+      "id": "swallowing-quote",
+      "summary": "a quote that closes lines later swallows the keys between",
+      "skill_md": "---\nargument-hint: \"start\nname: case-skill\ndescription: Use when testing the validator.\nx: y\"\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY", "DESCRIPTION_MISSING", "NAME_MISSING", "UNSUPPORTED"], "warnings": []},
+      "spec": {"errors": ["DESCRIPTION_MISSING", "NAME_MISSING", "UNSUPPORTED"], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "unterminated-quote",
+      "summary": "a quote that never closes",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nargument-hint: \"start\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY", "SYNTAX"], "warnings": []},
+      "spec": {"errors": ["SYNTAX"], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "unclosed-flow",
+      "summary": "a flow sequence that never closes",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nargument-hint: [file\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY", "SYNTAX"], "warnings": []},
+      "spec": {"errors": ["SYNTAX"], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "multiline-flow",
+      "summary": "a flow sequence that spans lines",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\npaths: [src/a.md,\n  src/b.md]\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY", "UNSUPPORTED"], "warnings": []},
+      "spec": {"errors": ["UNSUPPORTED"], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "claude-alias",
+      "summary": "an undefined alias under a Claude-only key",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nmodel: *missing\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY", "UNSUPPORTED"], "warnings": []},
+      "spec": {"errors": ["UNSUPPORTED"], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "claude-tag",
+      "summary": "a tag under a Claude-only key",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nmodel: !custom sonnet\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY", "UNSUPPORTED"], "warnings": []},
+      "spec": {"errors": ["UNSUPPORTED"], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "flow-alias-item",
+      "summary": "an unquoted glob that YAML reads as an alias",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\npaths: [\"docs/*.md\", *.md]\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY", "UNSUPPORTED"], "warnings": []},
+      "spec": {"errors": ["UNSUPPORTED"], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "allowed-tools-equals",
+      "summary": "allowed-tools is YAML's value indicator '='",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nallowed-tools: =\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["ALLOWED_TOOLS_KEY", "UNLOADABLE"], "warnings": []},
+      "spec": {"errors": ["UNLOADABLE"], "warnings": []}
+    },
+    {
+      "id": "allowed-tools-list-merge",
+      "summary": "an allowed-tools list item is YAML's merge indicator '<<'",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nallowed-tools:\n  - Read\n  - <<\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["ALLOWED_TOOLS_KEY", "UNLOADABLE"], "warnings": []},
+      "spec": {"errors": ["UNLOADABLE"], "warnings": ["ALLOWED_TOOLS_FORMAT"]}
+    },
+    {
+      "id": "impossible-date",
+      "summary": "a value PyYAML reads as a date that does not exist",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\neffort: 2026-02-30\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY", "UNLOADABLE"], "warnings": []},
+      "spec": {"errors": ["UNLOADABLE"], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "claude-hooks",
+      "summary": "Claude-only hooks with mappings inside sequences",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nhooks:\n  PreToolUse:\n    - matcher: \"Bash\"\n      hooks:\n        - type: command\n          command: \"./scripts/check.sh\"\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["CLAUDE_ONLY_KEY"]}
+    },
+    {
+      "id": "claude-flow-mapping",
+      "summary": "a closed flow mapping under a Claude-only key",
+      "skill_md": "---\nname: case-skill\ndescription: Use when testing the validator.\nhooks: {PreToolUse: []}\n---\n\n# Case Skill\n",
+      "portable": {"errors": ["CLAUDE_ONLY_KEY"], "warnings": []},
+      "spec": {"errors": [], "warnings": ["CLAUDE_ONLY_KEY"]}
     }
   ]
 }
