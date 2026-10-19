@@ -2,7 +2,8 @@
 """Verify the skill suite package in one pass and report every problem.
 
 Checks skill structure, portable frontmatter (docs/SKILL_SCHEMA.md), the
-tracked-text policy, public-term hygiene, and generated debris inside skills.
+tracked-text policy, public-term hygiene, generated debris inside skills, and
+symbolic links that do not resolve to a file.
 Inside a git checkout the inventory comes from git, so git-ignored files are
 skipped; elsewhere, such as an extracted archive, every file is checked.
 
@@ -128,7 +129,10 @@ def git_inventory(root: Path) -> list[str] | None:
     if listed is None or listed.returncode != 0:
         return None
     names = {name for name in listed.stdout.decode("utf-8", "surrogateescape").split("\0") if name}
-    return sorted(name for name in names if (root / name).is_file())
+    # Keep symbolic links that resolve to nothing, so verify() reports them.
+    return sorted(
+        name for name in names if (root / name).is_file() or (root / name).is_symlink()
+    )
 
 
 def walk_inventory(root: Path) -> list[str]:
@@ -228,12 +232,19 @@ def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
     )
     if not skills:
         problems.append(Problem("NO_SKILLS", "skills", "contains no skill folders."))
-    fileset = set(files)
+    broken = {path for path in files if (root / path).is_symlink() and not (root / path).is_file()}
+    for path in sorted(broken):
+        problems.append(
+            Problem("BROKEN_SYMLINK", path, "is a symbolic link that does not resolve to a file.")
+        )
+    fileset = set(files) - broken
     for name in skills:
         check_skill(root, name, fileset, schema, problems)
     for path in files:
         if is_debris(path):
             problems.append(Problem("DEBRIS", path, "is generated debris; delete it before packaging."))
+        if path in broken:
+            continue
         data = (root / path).read_bytes()
         check_forbidden(path, data, problems)
         if not is_binary(path, data):

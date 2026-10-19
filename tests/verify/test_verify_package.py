@@ -70,6 +70,35 @@ def codes_by_path(payload: dict) -> set[tuple[str, str]]:
     return {(item["code"], item["path"]) for item in payload["problems"]}
 
 
+def symlinks_supported() -> bool:
+    """Windows creates symbolic links only with Developer Mode or elevation."""
+    with tempfile.TemporaryDirectory(prefix="verify-symlink-probe-") as temp:
+        try:
+            os.symlink(Path(temp) / "target", Path(temp) / "link")
+        except (OSError, NotImplementedError):
+            return False
+    return True
+
+
+SYMLINKS = symlinks_supported()
+DANGLING = "templates/dangling.md"
+
+
+def plant_dangling_symlinks(root: Path) -> None:
+    """A dangling link outside the skills and one standing in for a skill's metadata."""
+    os.symlink("missing-target.md", root / DANGLING)
+    metadata = root / "skills" / "game-debug" / "agents" / "openai.yaml"
+    metadata.unlink()
+    os.symlink("missing-openai.yaml", metadata)
+
+
+BROKEN_LINK_PROBLEMS = {
+    ("BROKEN_SYMLINK", DANGLING),
+    ("BROKEN_SYMLINK", "skills/game-debug/agents/openai.yaml"),
+    ("OPENAI_YAML_MISSING", "skills/game-debug"),
+}
+
+
 class FilesystemInventoryTest(unittest.TestCase):
     """An extracted archive: no .git, so every file is checked."""
 
@@ -178,6 +207,14 @@ class FilesystemInventoryTest(unittest.TestCase):
         self.assertIn("walk failed", completed.stderr)
         self.assertEqual(completed.stdout, "")
 
+    @unittest.skipUnless(SYMLINKS, "symbolic links need extra privileges here")
+    def test_dangling_symlinks_are_problems_not_internal_errors(self) -> None:
+        plant_dangling_symlinks(self.root)
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(payload["inventory"], "filesystem")
+        self.assertEqual(codes_by_path(payload), BROKEN_LINK_PROBLEMS, payload["problems"])
+        self.assertEqual(returncode, 1)
+
     def test_missing_files_and_prompts(self) -> None:
         (self.root / "skills" / "game-ux-audit" / "agents" / "openai.yaml").unlink()
         prompt = self.root / "skills" / "game-qa-cleanup" / "agents" / "openai.yaml"
@@ -221,6 +258,28 @@ class GitInventoryTest(unittest.TestCase):
         returncode, payload = run_verifier(self.root)
         self.assertEqual(payload["inventory"], "git")
         self.assertEqual(codes_by_path(payload), {("DEBRIS", "skills/game-plan/.DS_Store")})
+        self.assertEqual(returncode, 1)
+
+    @unittest.skipUnless(SYMLINKS, "symbolic links need extra privileges here")
+    def test_tracked_dangling_symlinks_are_reported(self) -> None:
+        plant_dangling_symlinks(self.root)
+        # core.symlinks=true makes Git for Windows record the links as links.
+        subprocess.run(
+            ["git", "-c", "core.autocrlf=false", "-c", "core.symlinks=true", "-C", str(self.root), "add", "-A"],
+            capture_output=True,
+            check=True,
+        )
+        tracked = subprocess.run(
+            ["git", "-C", str(self.root), "ls-files", "--", DANGLING],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+        self.assertEqual(tracked.stdout.strip(), DANGLING)
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(payload["inventory"], "git")
+        self.assertEqual(codes_by_path(payload), BROKEN_LINK_PROBLEMS, payload["problems"])
         self.assertEqual(returncode, 1)
 
 
