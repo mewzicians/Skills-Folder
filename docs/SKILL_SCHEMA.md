@@ -186,6 +186,10 @@ ships.
   checks until a later v1.1 step moves it onto this module.
 - The schema module never imports PyYAML. PyYAML may appear only in CI, as a
   test dependency.
+  [`tests/frontmatter/test_differential.py`](../tests/frontmatter/test_differential.py)
+  uses the pinned PyYAML to check generated files: every portable-valid file
+  loads with identical values and passes Codex's validator rules, and every
+  spec-valid file loads.
 
 ## Corpus
 

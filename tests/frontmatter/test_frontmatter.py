@@ -246,11 +246,14 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
     def test_no_tool_imports_yaml(self) -> None:
+        # The differential test is the one CI-only consumer of PyYAML.
+        allowed = {"tests/frontmatter/test_differential.py"}
         sources = [*ROOT.joinpath("tools").rglob("*.py"), *ROOT.joinpath("tests").rglob("*.py")]
         offenders = [
-            str(path.relative_to(ROOT))
+            path.relative_to(ROOT).as_posix()
             for path in sources
-            if any(
+            if path.relative_to(ROOT).as_posix() not in allowed
+            and any(
                 line.strip().startswith(("import yaml", "from yaml"))
                 for line in path.read_text(encoding="utf-8").splitlines()
             )

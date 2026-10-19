@@ -70,6 +70,20 @@ LEVEL_BY_EVIDENCE_COMPLETENESS = {
 }
 
 
+def child_flags() -> list[str]:
+    """Interpreter flags that child Python processes inherit from this one.
+
+    Run with -X warn_default_encoding -W error::EncodingWarning, the suite
+    holds every scorer it starts to the same encoding discipline.
+    """
+    flags = ["-B"] if sys.flags.dont_write_bytecode else []
+    if sys.flags.warn_default_encoding:
+        flags += ["-X", "warn_default_encoding"]
+    for option in sys.warnoptions:
+        flags += ["-W", option]
+    return flags
+
+
 def configure_stdio() -> None:
     """Write UTF-8 to stdout and stderr and escape anything unencodable."""
     for stream in (sys.stdout, sys.stderr):
@@ -2378,6 +2392,7 @@ def run() -> int:
         completed = subprocess.run(
             [
                 sys.executable,
+                *child_flags(),
                 str(SCORER),
                 str(fixture),
                 "--json",
@@ -2452,6 +2467,7 @@ def run() -> int:
     report_only = subprocess.run(
         [
             sys.executable,
+            *child_flags(),
             str(SCORER),
             str(report_only_fixture),
             "--json",
@@ -2476,6 +2492,7 @@ def run() -> int:
         completed = subprocess.run(
             [
                 sys.executable,
+                *child_flags(),
                 str(SCORER),
                 str(full_claim_fixture),
                 "--json",

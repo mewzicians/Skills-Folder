@@ -124,6 +124,60 @@ class FilesystemInventoryTest(unittest.TestCase):
         self.assertEqual(payload["problems"], [])
         self.assertEqual(returncode, 0)
 
+    def test_text_policy_and_missing_prompt(self) -> None:
+        template = self.root / "templates" / "GAME_PROJECT_PROFILE.template.md"
+        template.write_bytes(template.read_bytes() + "Café notes.\n".encode("cp1252"))
+        license_file = self.root / "LICENSE"
+        license_file.write_bytes(license_file.read_bytes().rstrip(b"\n"))
+        prompt = self.root / "skills" / "game-debug" / "agents" / "openai.yaml"
+        kept = [
+            line
+            for line in prompt.read_text(encoding="utf-8").splitlines(keepends=True)
+            if "default_prompt" not in line
+        ]
+        prompt.write_text("".join(kept), encoding="utf-8", newline="\n")
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            codes_by_path(payload),
+            {
+                ("NOT_UTF8", "templates/GAME_PROJECT_PROFILE.template.md"),
+                ("NO_FINAL_NEWLINE", "LICENSE"),
+                ("DEFAULT_PROMPT_MISSING", "skills/game-debug/agents/openai.yaml"),
+            },
+            payload["problems"],
+        )
+
+    def test_a_package_without_skills(self) -> None:
+        shutil.rmtree(self.root / "skills")
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(codes_by_path(payload), {("NO_SKILLS", "skills")})
+
+    def test_an_internal_error_exits_3(self) -> None:
+        # Break the inventory walk; the verifier must not report a failed check.
+        program = (
+            "import os, runpy, sys\n"
+            "def broken_walk(*args, **kwargs):\n"
+            "    raise RuntimeError('walk failed')\n"
+            "os.walk = broken_walk\n"
+            f"sys.argv = ['verify_package.py', '--root', {str(self.root)!r}]\n"
+            f"runpy.run_path({str(VERIFIER)!r}, run_name='__main__')\n"
+        )
+        completed = subprocess.run(
+            [sys.executable, *CHILD_FLAGS, "-c", program],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 3, completed.stdout + completed.stderr)
+        self.assertIn("internal error", completed.stderr)
+        self.assertIn("walk failed", completed.stderr)
+        self.assertEqual(completed.stdout, "")
+
     def test_missing_files_and_prompts(self) -> None:
         (self.root / "skills" / "game-ux-audit" / "agents" / "openai.yaml").unlink()
         prompt = self.root / "skills" / "game-qa-cleanup" / "agents" / "openai.yaml"
