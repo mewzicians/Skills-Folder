@@ -177,7 +177,7 @@ def commit_warning(
     """A warning when git would commit the ledger, else None.
 
     Returns None when git is unavailable, the ledger is outside a git work
-    tree, or an ignore rule already covers it.
+    tree, git reports any other error, or an ignore rule already covers it.
     """
     try:
         completed = subprocess.run(

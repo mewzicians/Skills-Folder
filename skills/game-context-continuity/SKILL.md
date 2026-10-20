@@ -55,10 +55,10 @@ workspace tree.
 
 Keep ledgers out of public packages, commits, and release artifacts unless
 project guidance or the user requires otherwise. `init` warns when
-`git check-ignore` shows the new ledger would be committed (it skips the check
-without git); then add an ignore rule or move the ledger. If no writable
-location exists, give a `Continuity Capsule` in the response and state that it
-is not compaction-safe.
+`git check-ignore` shows the new ledger would be committed, and stays silent
+without git, outside a work tree, or on any git error; after a warning, add an
+ignore rule or move the ledger. If no writable location exists, give a
+`Continuity Capsule` in the response and state that it is not compaction-safe.
 
 Assign one writer, normally the main agent, to each ledger; delegated agents
 return results to that writer, and a handoff transfers ownership explicitly.
@@ -123,9 +123,9 @@ guidance.
 ## Prepare A Handoff
 
 Record the exact task boundary, required reading, protected behavior, current
-artifacts, tests, unresolved decisions, and next action. For delegated agents,
-record the material prompt and outcome without private reasoning. Distinguish
-independently verified results from unverified claims.
+artifacts, tests, unresolved decisions, delegated work as the schema
+describes, and next action. Distinguish independently verified results from
+unverified claims.
 
 A handoff passes only when another agent can state the current goal, the
 binding instructions and decisions, what is implemented, in progress, blocked,
@@ -141,8 +141,10 @@ assumptions presented as user decisions; or stable facts maintained elsewhere.
 Secret detection is heuristic: paraphrase sensitive direction, mark
 `<redacted>` text, and inspect the ledger before sharing it.
 
-Never modify unrelated project files for this skill, and never delete or
-archive a ledger without project guidance or the user's request.
+Never modify unrelated project files for this skill, and never delete a
+ledger. Archive one only under project guidance or the user's request; when
+the user asks to remove one, move it to a dated quarantine folder with a
+manifest instead.
 
 ## Validate And Close
 
@@ -164,6 +166,6 @@ require, with final completed evidence recorded. Do not call the continuity
 task complete while the ledger contradicts the workspace or leaves the next
 state ambiguous.
 
-A closed ledger is immutable history. Do not edit, annotate, or revalidate it
-afterward; put corrections in a new ledger or in the project's durable
-sources, and follow project guidance for archiving.
+A closed ledger is immutable history: never edit, annotate, or re-stamp it,
+though a read-only `check` is fine. Put corrections in a new ledger or in the
+project's durable sources.

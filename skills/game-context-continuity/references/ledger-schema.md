@@ -112,10 +112,10 @@ in the required template; unexpected headings are invalid.
 ## Closed Ledgers
 
 A ledger with `Status: complete` is closed, immutable history. Do not edit,
-annotate, re-stamp, or revalidate it afterward: later annotations can break
-validation and misstate what was known when it closed. Put corrections in a
-new ledger or in the project's durable sources, and leave the closed ledger
-as written.
+annotate, or re-stamp it afterward: later annotations can break validation and
+misstate what was known when it closed. A read-only `check`, which changes
+nothing, is allowed. Put corrections in a new ledger or in the project's
+durable sources, and leave the closed ledger as written.
 
 ## Source Precedence
 
