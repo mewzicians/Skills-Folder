@@ -5,9 +5,15 @@
 
 Inventory modes:
   default         every file under SOURCE
-  --git-tracked   only the files git tracks under SOURCE
+  --git-tracked   only the files git tracks under SOURCE. A tracked file that
+                  differs from HEAD fails the build unless --allow-dirty is
+                  passed, because the work-tree bytes are what get packaged.
   --allowlist F   exactly the paths listed in F, one per line ('#' starts a
-                  comment); any other file under SOURCE fails the build
+                  comment; UTF-8, with or without a byte-order mark). An
+                  unlisted file fails the build, except that git-ignored
+                  files, links, and default excludes are skipped and listed
+                  as excluded. A listed file that is one of those, or that
+                  does not exist, also fails the build.
 
 In every mode, files matching a default exclude (keys, certificates,
 credentials, environments, editor and vault state, continuity ledgers,
@@ -17,9 +23,11 @@ names: they cannot know every secret a project keeps, so the default walk and
 --git-tracked package any risky file they do not name. --allowlist is the
 only fully fail-closed mode; use it for a public release.
 
-Git-ignored files, symbolic links, and the .git folder are never packaged.
+Git-ignored files, symbolic links, the .git folder in any letter case, and
+anything that is not a regular file, such as a FIFO, are never packaged.
 Windows junctions count as symbolic links and are never followed, and a file
-whose real path leaves SOURCE fails the build.
+whose real path leaves SOURCE fails the build. An archive path may not hold
+a control character, so no name can forge a contentDigest line.
 
 When a .git folder or file exists at or above SOURCE, the builder needs git
 to answer for it: if git is missing or fails, the build is refused rather
@@ -32,7 +40,14 @@ reason, and two digests. contentDigest is the SHA-256 of the lines
 depends only on names and bytes. zipSha256 also depends on the compressor:
 DEFLATE output can change with the Python build's zlib, so a deflated
 archive's hash is reproducible only with the same zlib. Pass --stored for
-an archive whose bytes are reproducible everywhere.
+an archive whose bytes are reproducible everywhere. Inside a git work tree
+the summary also records gitHead, the HEAD commit (null before the first
+commit), and gitDirty, whether a tracked file under SOURCE differs from it.
+
+Every entry has a fixed timestamp and a Unix mode: 0755 when git's index
+records the file as executable or, outside Windows, when the file itself is
+executable; otherwise 0644. Windows has no executable bit, so there only the
+index counts. The summary's executable list names the 0755 entries.
 
 Exit codes: 0 built and verified, 1 build refused or failed, 2 usage error.
 Standard library only.
@@ -58,6 +73,7 @@ from pathlib import Path, PurePosixPath
 
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 UNIX_FILE_MODE = 0o100644
+UNIX_EXECUTABLE_MODE = 0o100755
 CREATE_SYSTEM_UNIX = 3
 DEFLATE_LEVEL = 9
 # The bit that marks a Windows reparse tag as a name surrogate: a link to another path.
@@ -200,8 +216,14 @@ def included(name: str, patterns: list[str]) -> bool:
 
 
 def git_environment() -> dict[str, str]:
-    """This process's environment without the variables that redirect git."""
-    return {key: value for key, value in os.environ.items() if key.upper() not in GIT_REDIRECTS}
+    """This process's environment without the variables that redirect git.
+
+    GIT_OPTIONAL_LOCKS=0 keeps git status and diff from rewriting the index,
+    so a build never changes the repository it reads.
+    """
+    environment = {key: value for key, value in os.environ.items() if key.upper() not in GIT_REDIRECTS}
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    return environment
 
 
 def git(
@@ -240,6 +262,32 @@ def git_ignored(source: Path, names: list[str]) -> set[str]:
     if completed is None or completed.returncode not in (0, 1):
         raise BuildError("git check-ignore failed under the source folder.")
     return set(nul_list(completed.stdout))
+
+
+def git_index_modes(source: Path) -> dict[str, str]:
+    """The index mode of every file git tracks under source, such as 100755."""
+    completed = git(source, "ls-files", "-s", "-z")
+    if completed is None or completed.returncode != 0:
+        raise BuildError("git ls-files failed under the source folder.")
+    modes = {}
+    for entry in completed.stdout.decode("utf-8", "surrogateescape").split("\0"):
+        if entry:
+            fields, _, name = entry.partition("\t")
+            modes[name] = fields.split(" ", 1)[0]
+    return modes
+
+
+def git_head(source: Path) -> tuple[str | None, list[str]]:
+    """HEAD's commit, or None before the first commit, and the tracked paths that differ from it."""
+    head = git(source, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+    if head is None:
+        raise BuildError("git rev-parse failed under the source folder.")
+    if head.returncode != 0:
+        return None, git_paths(source, "--cached")
+    changed = git(source, "diff", "--name-only", "--no-renames", "--relative", "-z", "HEAD", "--", ".")
+    if changed is None or changed.returncode != 0:
+        raise BuildError("git diff failed under the source folder.")
+    return head.stdout.decode("ascii").strip(), nul_list(changed.stdout)
 
 
 def folders_of(name: str) -> list[str]:
@@ -313,32 +361,37 @@ def is_link(path: Path) -> bool:
     return bool(isjunction is not None and isjunction(path))
 
 
-def walk(source: Path) -> tuple[list[str], set[str], list[str]]:
-    """Files and links under source, which links they are, and the .git entries skipped.
+def walk(source: Path) -> tuple[list[str], dict[str, str], list[str]]:
+    """Every entry under source, the ones that are not regular files, and the .git entries skipped.
 
-    A link to a folder is listed as one entry and never followed.
+    The second value maps each link to "link" and each other non-regular
+    entry, such as a FIFO or socket, to "special". A link to a folder is
+    listed as one entry and never followed. A .git entry is skipped in any
+    letter case, since Windows and macOS treat .Git as the same name.
     """
-    names, links, git_entries = [], set(), []
+    names, irregular, git_entries = [], {}, []
     for directory, subdirectories, filenames in os.walk(source):
         relative = Path(directory).relative_to(source)
         descend = []
         for name in sorted(subdirectories):
-            if name == ".git":
+            if name.casefold() == ".git":
                 git_entries.append((relative / name).as_posix() + "/")
             elif is_link(Path(directory) / name):
                 names.append((relative / name).as_posix())
-                links.add(names[-1])
+                irregular[names[-1]] = "link"
             else:
                 descend.append(name)
         subdirectories[:] = descend
         for filename in filenames:
-            if filename == ".git":
+            if filename.casefold() == ".git":
                 git_entries.append((relative / filename).as_posix())
                 continue
             names.append((relative / filename).as_posix())
             if is_link(Path(directory) / filename):
-                links.add(names[-1])
-    return sorted(names), links, sorted(git_entries)
+                irregular[names[-1]] = "link"
+            elif not stat.S_ISREG(os.lstat(Path(directory) / filename).st_mode):
+                irregular[names[-1]] = "special"
+    return sorted(names), irregular, sorted(git_entries)
 
 
 def read_inside(source: Path, name: str) -> bytes:
@@ -351,7 +404,7 @@ def read_inside(source: Path, name: str) -> bytes:
 
 def read_allowlist(path: Path) -> list[str]:
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
     except (OSError, UnicodeDecodeError) as error:
         raise BuildError(f"Cannot read the allowlist {path}: {error}") from error
     names = []
@@ -367,9 +420,19 @@ def read_allowlist(path: Path) -> list[str]:
     return sorted(names)
 
 
+def control_character(name: str) -> bool:
+    """A C0 or C1 control character, DEL, or an undecodable byte in a name."""
+    return any(
+        ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F or 0xD800 <= ord(char) <= 0xDFFF
+        for char in name
+    )
+
+
 def validate_names(names: list[str]) -> None:
     folded_names: dict[str, str] = {}
     for name in names:
+        if control_character(name):
+            raise BuildError(f"Archive path holds a control character or invalid UTF-8: {name!r}")
         if name.startswith("/") or ".." in parts_of(name) or "\\" in name or ":" in name:
             raise BuildError(f"Unsafe archive path: {name}")
         folded = name.casefold()
@@ -379,13 +442,32 @@ def validate_names(names: list[str]) -> None:
 
 
 def select(
-    source: Path, mode: str, allowlist: list[str] | None, includes: list[str]
-) -> tuple[list[str], dict[str, str]]:
-    """Split the inventory into packaged names and excluded {path: reason}."""
+    source: Path,
+    mode: str,
+    allowlist: list[str] | None,
+    includes: list[str],
+    allow_dirty: bool = False,
+) -> tuple[list[str], dict[str, str], dict[str, object]]:
+    """Split the inventory into packaged names and excluded {path: reason}.
+
+    The third value holds what git says: HEAD, whether tracked files differ
+    from it, and the index modes, all empty outside a git work tree.
+    """
     in_git = inside_git_work_tree(source)
     if mode == "git-tracked" and not in_git:
         raise BuildError("--git-tracked needs a source folder inside a git work tree.")
-    walked, links, git_entries = walk(source)
+    facts: dict[str, object] = {"head": None, "dirty": None, "modes": {}}
+    if in_git:
+        head, changed = git_head(source)
+        facts = {"head": head, "dirty": bool(changed), "modes": git_index_modes(source)}
+        if mode == "git-tracked" and changed and not allow_dirty:
+            shown = ", ".join(changed[:10]) + (f", and {len(changed) - 10} more" if len(changed) > 10 else "")
+            state = "differ from HEAD" if head else "are not committed yet; HEAD has no commit"
+            raise BuildError(
+                f"--git-tracked packages work-tree bytes, and these tracked files {state}: "
+                f"{shown}. Commit them, or pass --allow-dirty."
+            )
+    walked, irregular, git_entries = walk(source)
     ignored = git_ignored(source, walked) if in_git else set()
     shown_ignored = collapse(walked, ignored)
     excluded = {entry: "git metadata, never packaged" for entry in git_entries}
@@ -410,8 +492,10 @@ def select(
         rule = default_exclude(name)
         if name in ignored:
             shown, reason = shown_ignored[name], "git-ignored, never packaged"
-        elif name in links:
+        elif irregular.get(name) == "link":
             shown, reason = name, "symbolic link or junction, never packaged"
+        elif name in irregular:
+            shown, reason = name, "not a regular file, never packaged"
         elif rule is not None and not included(name, includes):
             shown, reason = rule[0], f"default exclude {rule[1]}; --include overrides it"
         elif allowlist is not None and name not in listed:
@@ -427,7 +511,15 @@ def select(
     refused.extend(f"{name}: listed but not found" for name in sorted(listed - set(walked)))
     if refused:
         raise BuildError("The allowlist and the source disagree:\n  " + "\n  ".join(refused))
-    return packaged, excluded
+    return packaged, excluded, facts
+
+
+def unix_mode(path: Path, index_mode: str | None) -> int:
+    """0755 for a file git or, outside Windows, the file system marks executable."""
+    executable = index_mode == "100755"
+    if os.name != "nt":
+        executable = executable or bool(path.stat().st_mode & 0o111)
+    return UNIX_EXECUTABLE_MODE if executable else UNIX_FILE_MODE
 
 
 def build(
@@ -439,6 +531,7 @@ def build(
     allowlist: list[str] | None = None,
     includes: list[str] | None = None,
     stored: bool = False,
+    allow_dirty: bool = False,
 ) -> dict[str, object]:
     source = source.resolve()
     output = output.resolve()
@@ -449,7 +542,7 @@ def build(
     if output.is_relative_to(source):
         raise BuildError("The output ZIP must be outside the source folder.")
 
-    names, excluded = select(source, mode, allowlist, includes or [])
+    names, excluded, facts = select(source, mode, allowlist, includes or [], allow_dirty)
     if not names:
         raise BuildError("The source folder contains no packageable files.")
     validate_names(names)
@@ -458,6 +551,7 @@ def build(
         raise BuildError("Required package paths are missing: " + ", ".join(missing))
 
     contents = {name: read_inside(source, name) for name in names}
+    modes = {name: unix_mode(source / name, facts["modes"].get(name)) for name in names}
     compression = zipfile.ZIP_STORED if stored else zipfile.ZIP_DEFLATED
     temporary = output.with_suffix(output.suffix + ".tmp")
     temporary.unlink(missing_ok=True)
@@ -466,7 +560,7 @@ def build(
             for name in names:
                 info = zipfile.ZipInfo(name, ZIP_TIMESTAMP)
                 info.create_system = CREATE_SYSTEM_UNIX
-                info.external_attr = (UNIX_FILE_MODE & 0xFFFF) << 16
+                info.external_attr = (modes[name] & 0xFFFF) << 16
                 # The level goes on each entry: a ZipFile-wide compresslevel
                 # does not reach entries written from a prebuilt ZipInfo.
                 archive.writestr(
@@ -492,7 +586,10 @@ def build(
         "output": str(output),
         "mode": mode,
         "compression": "stored" if stored else f"deflated, level {DEFLATE_LEVEL}",
+        "gitHead": facts["head"],
+        "gitDirty": facts["dirty"],
         "fileCount": len(names),
+        "executable": [name for name in names if modes[name] == UNIX_EXECUTABLE_MODE],
         "zipBytes": output.stat().st_size,
         "zipSha256": sha256_hex(output.read_bytes()).upper(),
         "contentDigest": sha256_hex(manifest.encode("utf-8")).upper(),
@@ -535,6 +632,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--require", action="append", default=[], metavar="PATH")
     parser.add_argument("--stored", action="store_true", help="store without compression")
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="with --git-tracked, package tracked files even when they differ from HEAD",
+    )
     args = parser.parse_args(argv)
     try:
         allowlist = read_allowlist(args.allowlist) if args.allowlist else None
@@ -547,6 +649,7 @@ def main(argv: list[str] | None = None) -> int:
             allowlist=allowlist,
             includes=args.include,
             stored=args.stored,
+            allow_dirty=args.allow_dirty,
         )
     except (BuildError, OSError) as error:
         print(f"build_repository_zip.py: {error}", file=sys.stderr)

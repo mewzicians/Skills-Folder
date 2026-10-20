@@ -226,6 +226,48 @@ class GitTreeTest(BuilderTestCase):
         self.assertEqual(returncode, 0, stderr)
         self.assertEqual(payload["packaged"], [".env", "README.md", "assets/sprite.txt", "index.html", "notes.txt"])
 
+    def test_git_tracked_refuses_a_dirty_tree_unless_allowed(self) -> None:
+        head = subprocess.run(
+            ["git", "-C", str(self.source), "rev-parse", "HEAD"], capture_output=True, check=True
+        ).stdout.decode("ascii").strip()
+        returncode, payload, stderr = self.build("--git-tracked")
+        self.assertEqual(returncode, 0, stderr)
+        self.assertEqual((payload["gitHead"], payload["gitDirty"]), (head, False))
+        (self.source / "index.html").write_text("uncommitted edit\n", encoding="utf-8", newline="\n")
+        returncode, _, stderr = self.build("--git-tracked", output="dirty.zip")
+        self.assertEqual(returncode, 1)
+        self.assertIn("differ from HEAD: index.html", stderr)
+        self.assertIn("--allow-dirty", stderr)
+        self.assertFalse((self.base / "dirty.zip").exists())
+        returncode, payload, stderr = self.build("--git-tracked", "--allow-dirty", "--stored", output="dirty.zip")
+        self.assertEqual(returncode, 0, stderr)
+        self.assertEqual((payload["gitHead"], payload["gitDirty"]), (head, True))
+        with zipfile.ZipFile(self.base / "dirty.zip") as archive:
+            self.assertEqual(archive.read("index.html"), b"uncommitted edit\n")
+        # The default walk records the same facts but does not refuse.
+        returncode, payload, stderr = self.build(output="walk.zip")
+        self.assertEqual(returncode, 0, stderr)
+        self.assertEqual((payload["gitHead"], payload["gitDirty"]), (head, True))
+
+    def test_executable_bits_follow_the_git_index(self) -> None:
+        script = self.source / "tools" / "run.sh"
+        write_files(self.source, {"tools/run.sh": "#!/bin/sh\n"})
+        script.chmod(0o755)
+        subprocess.run([*GIT, "-C", str(self.source), "add", "tools/run.sh"], check=True, capture_output=True)
+        subprocess.run(
+            [*GIT, "-C", str(self.source), "update-index", "--chmod=+x", "tools/run.sh"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run([*GIT, "-C", str(self.source), "commit", "-q", "-m", "tool"], check=True, capture_output=True)
+        returncode, payload, stderr = self.build("--git-tracked")
+        self.assertEqual(returncode, 0, stderr)
+        self.assertEqual(payload["executable"], ["tools/run.sh"])
+        with zipfile.ZipFile(self.base / "out.zip") as archive:
+            modes = {info.filename: info.external_attr >> 16 for info in archive.infolist()}
+        self.assertEqual(modes.pop("tools/run.sh"), 0o100755)
+        self.assertEqual(set(modes.values()), {0o100644})
+
     def test_a_wholly_ignored_source_packages_nothing(self) -> None:
         outer = self.base / "outer"
         outer.mkdir()
@@ -351,6 +393,57 @@ class DeterminismTest(BuilderTestCase):
         self.assertEqual(completed.returncode, 1)
         self.assertIn("missing.txt", completed.stderr)
         self.assertFalse((self.base / "out.zip").exists())
+
+    def test_no_git_facts_outside_a_work_tree(self) -> None:
+        returncode, payload, stderr = self.build()
+        self.assertEqual(returncode, 0, stderr)
+        self.assertEqual((payload["gitHead"], payload["gitDirty"], payload["executable"]), (None, None, []))
+
+    def test_a_git_folder_in_any_case_is_never_packaged(self) -> None:
+        write_files(self.source, {"vendor/.Git/config": "placeholder\n", "vendor/lib.js": "lib\n"})
+        returncode, payload, stderr = self.build("--include", "*")
+        self.assertEqual(returncode, 0, stderr)
+        self.assertNotIn("vendor/.Git/config", payload["packaged"])
+        self.assertIn("vendor/lib.js", payload["packaged"])
+        self.assertEqual(self.excluded(payload)["vendor/.Git/"], "git metadata, never packaged")
+
+    def test_an_allowlist_may_start_with_a_byte_order_mark(self) -> None:
+        allowlist = self.base / "allowlist.txt"
+        allowlist.write_bytes(b"\xef\xbb\xbfREADME.md\nindex.html\nassets/sprite.txt\nnotes.txt\ndebug.log\n")
+        returncode, payload, stderr = self.build("--allowlist", str(allowlist))
+        self.assertEqual(returncode, 0, stderr)
+        self.assertEqual(payload["packaged"], ["README.md", "assets/sprite.txt", "debug.log", "index.html", "notes.txt"])
+
+    def test_control_characters_are_refused_in_archive_names(self) -> None:
+        module = load_builder()
+        module.validate_names(["ok.txt", "café.txt"])
+        for name in ("bad\nname.txt", "bad\rname.txt", "tab\there.txt", "bell\x07.txt", "del\x7f.txt", "c1\x85.txt", "raw\udcff.txt"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(module.BuildError, "control character"):
+                    module.validate_names(["ok.txt", name])
+
+    @unittest.skipIf(os.name == "nt", "Windows file names cannot hold a newline")
+    def test_a_newline_in_a_file_name_fails_the_build(self) -> None:
+        write_files(self.source, {"forged\nname.txt": "placeholder\n"})
+        completed = run_builder(str(self.source), str(self.base / "out.zip"))
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("control character", completed.stderr)
+        self.assertFalse((self.base / "out.zip").exists())
+
+    @unittest.skipIf(os.name == "nt", "Windows has no executable bit")
+    def test_an_executable_file_keeps_its_bit(self) -> None:
+        (self.source / "assets" / "sprite.txt").chmod(0o755)
+        returncode, payload, stderr = self.build()
+        self.assertEqual(returncode, 0, stderr)
+        self.assertEqual(payload["executable"], ["assets/sprite.txt"])
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs need a POSIX system")
+    def test_a_fifo_is_never_opened_or_packaged(self) -> None:
+        os.mkfifo(self.source / "pipe")
+        returncode, payload, stderr = self.build("--include", "pipe")
+        self.assertEqual(returncode, 0, stderr)
+        self.assertNotIn("pipe", payload["packaged"])
+        self.assertEqual(self.excluded(payload)["pipe"], "not a regular file, never packaged")
 
     @unittest.skipUnless(symlinks_supported(), "symbolic links need extra privileges here")
     def test_symbolic_links_are_never_packaged(self) -> None:
