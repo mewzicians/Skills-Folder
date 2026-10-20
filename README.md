@@ -35,15 +35,17 @@ tests, mirrors, constraints, and release gates.
 
 ## Quick Start
 
-Clone the repository, then install every skill:
+Clone the repository, then install every skill with Python 3.11 or later:
 
-```powershell
-.\install-skills.ps1
+```text
+python install.py install                  # Codex: ~/.agents/skills
+python install.py install --target claude  # Claude Code: ~/.claude/skills
 ```
 
-The installer writes to `$CODEX_HOME\skills` when `CODEX_HOME` is set and
-otherwise uses `~\.codex\skills`. Existing skill folders are backed up before
-replacement.
+The installer shows its plan and asks first. It upgrades older copies,
+refuses to overwrite copies it cannot account for, and moves anything it
+replaces to a backup folder outside every skills folder.
+`python install.py --help` lists every target and option.
 
 Verify the package at any time with the package verifier, which needs only
 Python 3.11 or later:
@@ -107,7 +109,7 @@ templates/                 Project-specialization profile
 tools/                     Package verifier and frontmatter validator
 tests/                     Tests for the tools
 docs/                      Frontmatter schema and specialization guide
-install-skills.ps1         Backup-preserving suite installer
+install.py                 Suite installer for Codex and Claude Code
 ```
 
 ## License

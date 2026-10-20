@@ -77,6 +77,14 @@ jobs:
           python -B -X warn_default_encoding -W error::EncodingWarning tests/scripts/test_skill_scripts.py
           python -B -X warn_default_encoding -W error::EncodingWarning tests/zip/test_build_repository_zip.py
 
+      # Every test points HOME, USERPROFILE, CODEX_HOME, CLAUDE_CONFIG_DIR,
+      # LOCALAPPDATA, and XDG_STATE_HOME into a temporary folder, and the run
+      # fails if the runner's real skill or state folders change.
+      - name: Run the installer tests in temporary homes
+        run: >-
+          python -B -X warn_default_encoding -W error::EncodingWarning
+          tests/install/test_install.py
+
       - name: Run the continuity self-test
         run: >-
           python -B -X warn_default_encoding -W error::EncodingWarning
