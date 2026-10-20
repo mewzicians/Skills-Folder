@@ -125,14 +125,16 @@ the selected skill for every case. Preserve each prompt as a distinct hashed
 artifact in the evidence manifest. The behavioral gate also requires a
 regression case.
 
+For an explicit-only skill, whose metadata disables implicit invocation, test
+that implicit prompts do not activate it and that invocation by name does,
+and record that policy. Its missing auto-dispatch is not a recall defect;
+never repair it by re-enabling implicit invocation.
+
 ## Audit Instructions And Resources
 
-Use the rubric to evaluate source-of-truth routing and required reading,
-ordering and completion conditions, degrees of freedom, decision ownership and
-resistance to user mirroring, approval and status rules, tool availability and
-fallbacks, progressive disclosure, output and evidence requirements, safety
-and scope, portability and context cost, and whether examples clarify behavior
-without overfitting it.
+Score every applicable rubric row, from source-of-truth routing and decision
+ownership to safety, portability, and context cost, and check that examples
+clarify behavior without overfitting it.
 
 Locate the earliest broken layer. A weak output may originate in metadata,
 missing context, ambiguous instructions, unavailable resources, poor test

@@ -22,7 +22,7 @@ row as `Pass`, `Partial`, `Fail`, or `Unknown` and attach evidence.
 | Description | Does it state both what the skill does and when to use it? |
 | Recall | Do direct, paraphrased, and indirect intended requests trigger it? |
 | Precision | Do neighboring out-of-scope requests avoid triggering it? |
-| Activation evidence | Were trigger cases run through auto-dispatch with expected and observed selection recorded? |
+| Activation evidence | Were trigger cases run through auto-dispatch with expected and observed selection recorded? For an explicit-only skill, do implicit prompts stay inactive while invocation by name activates it, with the policy recorded? |
 | UI metadata | Does `agents/openai.yaml` accurately represent the current skill? |
 
 ## Context And Progressive Disclosure

@@ -127,7 +127,9 @@ Use evidence with different failure modes:
    paraphrases, two negative controls, one boundary/edge case, and one
    regression prompt as distinct hashed artifacts. Run these through
    auto-dispatch and record expected activation, observed activation, and the
-   selected skill; explicit invocation is not trigger evidence.
+   selected skill; explicit invocation is not trigger evidence, except that
+   an explicit-only skill is tested as
+   [readiness-levels.md](readiness-levels.md) describes.
 3. **Metamorphic:** rephrase, reorder, add irrelevant context, remove optional
    context, and introduce a controlled conflict. Required behavior should
    remain invariant unless the changed information is material. Preserve at
