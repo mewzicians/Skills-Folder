@@ -20,7 +20,9 @@ name with a skill in another folder the same host loads. Changes are staged
 next to the skills folder, validated, swapped in by rename, and rolled back
 together on any failure. Replaced and uninstalled skills move to a backup
 folder in your user state folder, never inside a skills folder, and nothing
-is deleted.
+is deleted. One install or uninstall runs at a time: each holds a lock on
+the state folder from start to finish, and a run that finds another one
+active refuses.
 
 Exit codes: 0 done or nothing to do, 1 failed (changes rolled back), 2 usage
 or environment error, 3 refused by a safety check (nothing changed),
@@ -36,6 +38,7 @@ sys.dont_write_bytecode = True
 
 import argparse
 import datetime
+import errno
 import hashlib
 import importlib.util
 import json
@@ -45,6 +48,7 @@ import secrets
 import shutil
 import stat
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -59,6 +63,10 @@ PROJECT_TARGETS = ("codex-project", "claude-project")
 STATE_FOLDER = "skills-folder"
 LEDGER_NAME = "install-ledger.json"
 JOURNAL_NAME = "journal.json"
+LOCK_NAME = "install.lock"
+# A live process counts as a journal's writer only if it started no later than
+# this many seconds after the journal did; a later one reuses that process ID.
+START_SLACK_SECONDS = 5.0
 STAGE_PREFIX = ".skills-folder-stage-"
 LEDGER_SCHEMA = 1
 # Skills that versions 1.0.x installed and later versions removed or renamed.
@@ -254,6 +262,169 @@ def write_atomic(path: Path, text: str) -> None:
 
 def now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_time(text: object) -> float | None:
+    try:
+        moment = datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ")  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return moment.replace(tzinfo=datetime.timezone.utc).timestamp()
+
+
+# ------------------------------------------------------------ the lock
+
+
+def lock_exclusively(handle) -> bool:
+    """Take an exclusive lock on handle's file without waiting; False when another process holds it."""
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError as error:
+            if error.errno in (errno.EACCES, getattr(errno, "EDEADLOCK", errno.EDEADLK)):
+                return False
+            raise
+        return True
+    import fcntl
+
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    return True
+
+
+def unlock(handle) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+class StateLock:
+    """An exclusive OS lock on the state folder, held for a whole install or uninstall, recovery included.
+
+    The lock file stays in place between runs; the operating system releases
+    the lock when the process ends, however it ends.
+    """
+
+    def __init__(self, state: Path) -> None:
+        self.path = state / LOCK_NAME
+        self.handle = None
+
+    def __enter__(self) -> "StateLock":
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(self.path, "a+b")
+        try:
+            locked = lock_exclusively(handle)
+        except BaseException:
+            handle.close()
+            raise
+        if not locked:
+            handle.close()
+            raise UsageError(
+                f"another install.py run is using {self.path.parent} (it holds {self.path}), so nothing was "
+                "changed. Wait for that run to finish, then run this command again."
+            )
+        self.handle = handle
+        return self
+
+    def __exit__(self, *details) -> None:
+        try:
+            unlock(self.handle)
+        except OSError:
+            pass
+        finally:
+            self.handle.close()
+
+
+def windows_process(pid: int) -> tuple[bool, float | None]:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.GetProcessTimes.argtypes = (wintypes.HANDLE,) + (ctypes.POINTER(wintypes.FILETIME),) * 4
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ctypes.get_last_error() == 5, None  # ERROR_ACCESS_DENIED: it runs, as another user
+    try:
+        code = wintypes.DWORD()
+        if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) and code.value != 259:  # STILL_ACTIVE
+            return False, None
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not kernel32.GetProcessTimes(handle, *(ctypes.byref(item) for item in times)):
+            return True, None
+        ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+        return True, ticks / 10_000_000 - 11_644_473_600
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def posix_process(pid: int) -> tuple[bool, float | None]:
+    stat_file = Path(f"/proc/{pid}/stat")
+    if sys.platform.startswith("linux") and Path("/proc/self/stat").exists():
+        try:
+            text = stat_file.read_text(encoding="ascii", errors="replace")
+        except FileNotFoundError:
+            return False, None
+        fields = text[text.rindex(")") + 2 :].split()
+        if fields[0] in ("Z", "X"):
+            return False, None
+        boot = next(
+            int(line.split()[1])
+            for line in Path("/proc/stat").read_text(encoding="ascii", errors="replace").splitlines()
+            if line.startswith("btime ")
+        )
+        return True, boot + int(fields[19]) / os.sysconf("SC_CLK_TCK")
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False, None
+    except PermissionError:
+        pass
+    completed = subprocess.run(
+        ["ps", "-o", "lstart=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=10,
+        check=False,
+        env=dict(os.environ, LC_ALL="C", LANG="C"),
+    )
+    if completed.returncode != 0 and not completed.stdout.strip():
+        return False, None  # it ended after the check above
+    started = time.strptime(" ".join(completed.stdout.split()), "%a %b %d %H:%M:%S %Y")
+    return True, time.mktime(started)
+
+
+def writer_running(pid: object, started: object) -> bool:
+    """Whether the process that began a journal still runs, not counting a later process that reuses its ID.
+
+    When its start time cannot be read, a live process counts as the writer.
+    """
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0 or pid == os.getpid():
+        return False
+    try:
+        running, created = windows_process(pid) if os.name == "nt" else posix_process(pid)
+    except Exception:  # noqa: BLE001 - an unreadable process table never permits a recovery
+        running, created = True, None
+    began = parse_time(started)
+    if not running:
+        return False
+    return created is None or began is None or created <= began + START_SLACK_SECONDS
 
 
 # --------------------------------------------------------------- source
@@ -726,6 +897,8 @@ class Transaction:
         os.close(descriptor)
         self.journal = {
             "id": self.id,
+            "pid": os.getpid(),
+            "started": now(),
             "command": self.plan.command,
             "root": str(self.plan.target.root),
             "created": [],
@@ -1017,6 +1190,12 @@ def recover(state: Path, args, out: Reporter) -> tuple[int, dict]:
             "run's skills folder, stage, backup, and ledger, so this one was not acted on and nothing was "
             "changed. Check the skills folder and the backups by hand, then move the journal aside."
         )
+    if writer_running(journal.get("pid"), journal.get("started")):
+        raise UsageError(
+            f"{journal_path} belongs to a run that may still be active: process {journal.get('pid')}, which began "
+            f"it at {journal.get('started')}, is still running. Nothing was changed. Wait for that run to finish, "
+            "then run this command again."
+        )
     committed = journal.get("committed")
     out.say(f"A previous run ({journal.get('command')} into {journal.get('root')}) did not finish: {journal_path}")
     out.say("  It will be finished (its changes are complete)." if committed else "  Its changes will be rolled back.")
@@ -1044,6 +1223,12 @@ def run_change(command: str, args, out: Reporter) -> tuple[int, dict]:
     target = resolve_target(args.target, args.project, args.dest)
     state = state_dir()
     check_locations(target, state)
+    with StateLock(state):
+        return change_locked(command, args, out, source, target, state)
+
+
+def change_locked(command: str, args, out: Reporter, source: Source, target: Target, state: Path) -> tuple[int, dict]:
+    """Plan and apply one change while this process holds the state lock."""
     if (state / JOURNAL_NAME).exists():
         code, extra = recover(state, args, out)
         return code, result_payload(None, target, state, **extra)
@@ -1161,6 +1346,15 @@ def status_of(target: Target, state: Path, source: Source, ledger: dict, out: Re
     }
 
 
+def journal_writer(path: Path) -> tuple[object, object]:
+    """The process ID and start time a journal records, or (None, None) when it cannot be read."""
+    try:
+        journal = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None, None
+    return (journal.get("pid"), journal.get("started")) if isinstance(journal, dict) else (None, None)
+
+
 def run_status(args, out: Reporter) -> tuple[int, dict]:
     source = load_source()
     state = state_dir()
@@ -1185,9 +1379,15 @@ def run_status(args, out: Reporter) -> tuple[int, dict]:
         out.say()
         out.say(error)
     journal = state / JOURNAL_NAME
+    active = False
     if journal.exists():
+        writer = journal_writer(journal)
+        active = writer_running(*writer)
         out.say()
-        out.say(f"An interrupted run left {journal}; the next install or uninstall offers to recover it.")
+        if active:
+            out.say(f"An install.py run (process {writer[0]}) is in progress; its journal is {journal}.")
+        else:
+            out.say(f"An interrupted run left {journal}; the next install or uninstall offers to recover it.")
     return EXIT_OK, {
         "installer_version": source.version,
         "command": "status",
@@ -1196,7 +1396,8 @@ def run_status(args, out: Reporter) -> tuple[int, dict]:
         "source": str(PACKAGE_ROOT),
         "targets": reports,
         "errors": errors,
-        "interrupted": journal.exists(),
+        "interrupted": journal.exists() and not active,
+        "active": active,
         "result": "status",
         "exit_code": EXIT_OK,
     }

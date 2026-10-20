@@ -25,6 +25,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -208,6 +209,30 @@ def run_here(homes: Homes, *args: str, stdin: str = "", **overrides: str):
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = INSTALL.main([*args, "--json"])
     return code, json.loads(out.getvalue()), err.getvalue()
+
+
+def outside_state(homes: Homes, entries: dict[str, str]) -> dict[str, str]:
+    """tree(homes.home) without the state folder, which sits under the home folder on macOS."""
+    if not INSTALL.is_within(homes.state, homes.home):
+        return entries
+    prefix = homes.state.relative_to(homes.home).as_posix()
+    parents = {"/".join(prefix.split("/")[: index + 1]) + "/" for index in range(prefix.count("/") + 1)}
+    return {key: value for key, value in entries.items() if key not in parents and not key.startswith(prefix + "/")}
+
+
+def exited_pid() -> int:
+    """The ID of a process that has already ended."""
+    process = subprocess.Popen([sys.executable, "-c", "pass"])
+    process.wait()
+    return process.pid
+
+
+def mark_writer_exited(homes: Homes) -> None:
+    """Make the journal's writer a process that ended, as after a crash, rather than this test process."""
+    path = homes.state / "journal.json"
+    journal = json.loads(path.read_text(encoding="utf-8"))
+    journal["pid"] = exited_pid()
+    path.write_text(json.dumps(journal, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 
 def tree(root: Path) -> dict[str, str]:
@@ -662,7 +687,7 @@ class AtomicityTest(HomesTestCase):
         with mock.patch.object(INSTALL.os, "rename", failing_rename(4, OSError("injected failure"))):
             code, payload, err = run_here(homes, "install", "--yes")
         self.assertEqual(code, 1, err)
-        self.assertEqual(tree(homes.home), {})
+        self.assertEqual(outside_state(homes, tree(homes.home)), {})
         self.assertFalse(homes.ledger.exists())
 
     def test_an_interrupted_run_is_rolled_back_on_the_next_run(self) -> None:
@@ -673,8 +698,9 @@ class AtomicityTest(HomesTestCase):
         self.assertEqual(code, 1, err)
         self.assertTrue((self.homes.state / "journal.json").exists())
         self.assertNotEqual(tree(self.homes.codex), self.before)
+        mark_writer_exited(self.homes)
         code, payload, err = run_cli(self.homes, "status", "--target", "codex")
-        self.assertTrue(payload["interrupted"])
+        self.assertEqual((payload["interrupted"], payload["active"]), (True, False))
         code, payload, err = run_cli(self.homes, "install", stdin="n\n")
         self.assertEqual((code, payload["result"]), (4, "cancelled"))
         code, payload, err = run_cli(self.homes, "install", "--yes")
@@ -695,6 +721,7 @@ class AtomicityTest(HomesTestCase):
         self.assertInstalled(self.homes.codex)
         journal = json.loads((self.homes.state / "journal.json").read_text(encoding="utf-8"))
         self.assertTrue(journal["committed"])
+        mark_writer_exited(self.homes)
         # The next run finishes the cleanup and leaves the installed skills alone.
         code, payload, err = run_cli(self.homes, "install", "--yes")
         self.assertEqual((code, payload["result"]), (1, "recovered"), err)
@@ -812,7 +839,9 @@ class LedgerAndJournalSafetyTest(HomesTestCase):
             "move from outside": {"renames": [{"from": str(victim), "to": str(stage / "old" / "victim")}]},
             "move to outside": {"renames": [{"from": str(stage / "new" / "game-plan"), "to": str(victim)}]},
             "traversal": {
-                "renames": [{"from": str(root / ".." / ".." / "victim"), "to": str(stage / "old" / ".." / ".." / "victim")}]
+                "renames": [
+                    {"from": str(root / ".." / ".." / "victim"), "to": str(stage / "old" / ".." / ".." / "victim")}
+                ]
             },
             "absolute name": {"renames": [{"from": str(self.victims[2]), "to": str(stage / "old" / "abs-victim")}]},
             "run id": {"id": "..", "stage": str(INSTALL.real(root).parent / ".skills-folder-stage-..")},
@@ -881,6 +910,131 @@ class LedgerAndJournalSafetyTest(HomesTestCase):
         self.assertTrue(any("game-plan in place" in problem for problem in payload["errors"]), payload["errors"])
         self.assertEqual(tree(self.homes.codex / "game-plan"), edited)
         self.assertTrue((self.homes.state / "journal.json").exists())
+
+
+SLOW_RUN = """
+import importlib.util, os, sys, time
+from pathlib import Path
+
+installer, marker, release = sys.argv[1:4]
+spec = importlib.util.spec_from_file_location("install_slowed", installer)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+real_rename = os.rename
+
+
+def slow_rename(source, destination):
+    # Pause at the first swap, with the journal written and the lock held, until released.
+    if not Path(marker).exists():
+        Path(marker).write_text("swapping\\n", encoding="utf-8")
+        deadline = time.monotonic() + 120
+        while not Path(release).exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+    return real_rename(source, destination)
+
+
+module.os.rename = slow_rename
+sys.exit(module.main(sys.argv[4:]))
+"""
+
+
+class ConcurrencyTest(HomesTestCase):
+    """One run at a time: a second run refuses while the first holds the state lock, recovery included."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual(code, 0, err)
+        for name in ("game-debug", "game-plan", "music-composer"):
+            changed = modify(self.homes.codex, name, "From an older release.\n")
+            edit_ledger(self.homes, self.homes.codex, name, version="1.0.0", digest=changed)
+
+    def test_a_second_run_refuses_while_the_first_is_mid_swap(self) -> None:
+        marker, release = self.homes.root / "swapping.txt", self.homes.root / "release.txt"
+        first = subprocess.Popen(
+            [sys.executable, *CHILD_FLAGS, "-c", SLOW_RUN, str(INSTALLER), str(marker), str(release), "install",
+             "--yes", "--json"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=child_env(self.homes),
+            cwd=str(self.homes.root),
+        )
+        self.addCleanup(lambda: first.poll() is None and first.kill())
+        deadline = time.monotonic() + 60
+        while not marker.exists():
+            self.assertIsNone(first.poll(), "the first run ended before its first swap")
+            self.assertLess(time.monotonic(), deadline, "the first run never reached its first swap")
+            time.sleep(0.05)
+        journal = self.homes.state / "journal.json"
+        during = (tree(self.homes.codex.parent), journal.read_bytes(), self.homes.ledger.read_bytes())
+        for args in (("install", "--yes"), ("uninstall", "--yes", "--include-modified")):
+            with self.subTest(args=args):
+                code, payload, err = run_cli(self.homes, *args)
+                self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
+                self.assertIn("another install.py run is using", payload["error"])
+                after = (tree(self.homes.codex.parent), journal.read_bytes(), self.homes.ledger.read_bytes())
+                self.assertEqual(after, during)
+        code, status, err = run_cli(self.homes, "status", "--target", "codex")
+        self.assertEqual((code, status["active"], status["interrupted"]), (0, True, False), err)
+        release.write_text("go\n", encoding="utf-8")
+        out, err = first.communicate(timeout=120)
+        self.assertEqual(first.returncode, 0, err)
+        self.assertEqual(json.loads(out)["result"], "done")
+        self.assertInstalled(self.homes.codex)
+        self.assertFalse(journal.exists())
+        self.assertEqual([path.name for path in self.homes.codex.parent.iterdir()], ["skills"])
+
+    def test_the_lock_covers_recovery(self) -> None:
+        write_journal(self.homes, journal_for(self.homes, self.homes.codex))
+        before = (tree(self.homes.codex), self.homes.ledger.read_bytes())
+        with INSTALL.StateLock(self.homes.state):
+            code, payload, err = run_cli(self.homes, "install", "--yes")
+            self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
+            self.assertIn("another install.py run is using", payload["error"])
+        self.assertEqual((tree(self.homes.codex), self.homes.ledger.read_bytes()), before)
+        self.assertTrue((self.homes.state / "journal.json").exists())
+        # Released, the same journal is recovered.
+        code, payload, err = run_cli(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "recovered"), err)
+
+    def test_recovery_waits_while_the_journal_writer_runs(self) -> None:
+        journal = self.homes.state / "journal.json"
+        write_journal(self.homes, journal_for(self.homes, self.homes.codex, pid=os.getpid(), started=INSTALL.now()))
+        code, payload, err = run_cli(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
+        self.assertIn(f"process {os.getpid()}", payload["error"])
+        self.assertIn("is still running", payload["error"])
+        self.assertTrue(journal.exists())
+        code, status, err = run_cli(self.homes, "status", "--target", "codex")
+        self.assertEqual((status["active"], status["interrupted"]), (True, False))
+        # A live process that started after the journal reuses the ID, so it is not the writer.
+        reused = journal_for(self.homes, self.homes.codex, pid=os.getpid(), started="2000-01-01T00:00:00Z")
+        write_journal(self.homes, reused)
+        code, payload, err = run_cli(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "recovered"), err)
+        write_journal(self.homes, journal_for(self.homes, self.homes.codex, pid=exited_pid(), started=INSTALL.now()))
+        code, payload, err = run_cli(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "recovered"), err)
+
+    def test_the_journal_records_its_writer(self) -> None:
+        with mock.patch.object(INSTALL, "undo", lambda journal, path, log: []):
+            with mock.patch.object(INSTALL.os, "rename", failing_rename(1, OSError("power cut"))):
+                code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual(code, 1, err)
+        journal = json.loads((self.homes.state / "journal.json").read_text(encoding="utf-8"))
+        self.assertEqual(journal["pid"], os.getpid())
+        self.assertLessEqual(abs(INSTALL.parse_time(journal["started"]) - time.time()), 120)
+        sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        self.addCleanup(sleeper.wait)
+        self.addCleanup(sleeper.kill)
+        self.assertTrue(INSTALL.writer_running(sleeper.pid, INSTALL.now()))
+        self.assertFalse(INSTALL.writer_running(sleeper.pid, "2000-01-01T00:00:00Z"))
+        self.assertFalse(INSTALL.writer_running(exited_pid(), INSTALL.now()))
+        self.assertFalse(INSTALL.writer_running(os.getpid(), INSTALL.now()))
 
 
 class SourceTest(HomesTestCase):
