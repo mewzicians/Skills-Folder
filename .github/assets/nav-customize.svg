@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="134" height="40" viewBox="0 0 134 40" role="img" aria-labelledby="nav-customize-title">
+  <title id="nav-customize-title">Customize</title>
+  <rect width="134" height="40" rx="9" fill="#047857"/>
+  <rect x="1" y="1" width="132" height="38" rx="8" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2"/>
+  <path d="M12 15 H28 M12 25 H28" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"/><circle cx="17" cy="15" r="3.4" fill="#047857" stroke="#ffffff" stroke-width="2.2"/><circle cx="24" cy="25" r="3.4" fill="#047857" stroke="#ffffff" stroke-width="2.2"/>
+  <text x="36" y="25.5" fill="#ffffff" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700">Customize</text>
+</svg>
