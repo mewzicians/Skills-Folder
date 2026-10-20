@@ -49,7 +49,6 @@ import secrets
 import shutil
 import stat
 import subprocess
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -65,9 +64,6 @@ STATE_FOLDER = "skills-folder"
 LEDGER_NAME = "install-ledger.json"
 JOURNAL_NAME = "journal.json"
 LOCK_NAME = "install.lock"
-# A live process counts as a journal's writer only if it started no later than
-# this many seconds after the journal did; a later one reuses that process ID.
-START_SLACK_SECONDS = 5.0
 STAGE_PREFIX = ".skills-folder-stage-"
 LEDGER_SCHEMA = 1
 # Skills that versions 1.0.x installed and later versions removed or renamed.
@@ -327,14 +323,6 @@ def now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def parse_time(text: object) -> float | None:
-    try:
-        moment = datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ")  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    return moment.replace(tzinfo=datetime.timezone.utc).timestamp()
-
-
 # ------------------------------------------------------------ the lock
 
 
@@ -375,8 +363,11 @@ def unlock(handle) -> None:
 class StateLock:
     """An exclusive OS lock on the state folder, held for a whole install or uninstall, recovery included.
 
-    The lock file stays in place between runs; the operating system releases
-    the lock when the process ends, however it ends.
+    The lock alone decides whether another run is active: a run that holds
+    it knows no other run on this machine is changing anything, so it may
+    recover a journal it finds. The lock file stays in place between runs;
+    the operating system releases the lock when the process ends, however it
+    ends.
     """
 
     def __init__(self, state: Path) -> None:
@@ -384,8 +375,17 @@ class StateLock:
         self.handle = None
 
     def __enter__(self) -> "StateLock":
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        handle = open(self.path, "a+b")
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            handle = open(self.path, "a+b")
+        except OSError as error:
+            variable = "LOCALAPPDATA" if os.name == "nt" else None if sys.platform == "darwin" else "XDG_STATE_HOME"
+            raise UsageError(
+                f"cannot open the lock file {self.path} ({error}), so nothing was changed. Make "
+                f"{self.path.parent} a folder you can write to"
+                + (f", or set {variable} to another absolute path" if variable else "")
+                + ", then run this command again."
+            ) from error
         try:
             locked = lock_exclusively(handle)
         except BaseException:
@@ -409,85 +409,16 @@ class StateLock:
             self.handle.close()
 
 
-def windows_process(pid: int) -> tuple[bool, float | None]:
-    import ctypes
-    from ctypes import wintypes
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.OpenProcess.restype = wintypes.HANDLE
-    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
-    kernel32.GetProcessTimes.argtypes = (wintypes.HANDLE,) + (ctypes.POINTER(wintypes.FILETIME),) * 4
-    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
-    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-    if not handle:
-        return ctypes.get_last_error() == 5, None  # ERROR_ACCESS_DENIED: it runs, as another user
+def lock_held(state: Path) -> bool:
+    """Whether another run holds the state lock now; status tests it without waiting or creating anything."""
     try:
-        code = wintypes.DWORD()
-        if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) and code.value != 259:  # STILL_ACTIVE
-            return False, None
-        times = [wintypes.FILETIME() for _ in range(4)]
-        if not kernel32.GetProcessTimes(handle, *(ctypes.byref(item) for item in times)):
-            return True, None
-        ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
-        return True, ticks / 10_000_000 - 11_644_473_600
-    finally:
-        kernel32.CloseHandle(handle)
-
-
-def posix_process(pid: int) -> tuple[bool, float | None]:
-    stat_file = Path(f"/proc/{pid}/stat")
-    if sys.platform.startswith("linux") and Path("/proc/self/stat").exists():
-        try:
-            text = stat_file.read_text(encoding="ascii", errors="replace")
-        except FileNotFoundError:
-            return False, None
-        fields = text[text.rindex(")") + 2 :].split()
-        if fields[0] in ("Z", "X"):
-            return False, None
-        boot = next(
-            int(line.split()[1])
-            for line in Path("/proc/stat").read_text(encoding="ascii", errors="replace").splitlines()
-            if line.startswith("btime ")
-        )
-        return True, boot + int(fields[19]) / os.sysconf("SC_CLK_TCK")
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False, None
-    except PermissionError:
+        with open(state / LOCK_NAME, "rb") as handle:
+            if not lock_exclusively(handle):
+                return True
+            unlock(handle)
+    except OSError:
         pass
-    completed = subprocess.run(
-        ["ps", "-o", "lstart=", "-p", str(pid)],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=10,
-        check=False,
-        env=dict(os.environ, LC_ALL="C", LANG="C"),
-    )
-    if completed.returncode != 0 and not completed.stdout.strip():
-        return False, None  # it ended after the check above
-    started = time.strptime(" ".join(completed.stdout.split()), "%a %b %d %H:%M:%S %Y")
-    return True, time.mktime(started)
-
-
-def writer_running(pid: object, started: object) -> bool:
-    """Whether the process that began a journal still runs, not counting a later process that reuses its ID.
-
-    When its start time cannot be read, a live process counts as the writer.
-    """
-    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0 or pid == os.getpid():
-        return False
-    try:
-        running, created = windows_process(pid) if os.name == "nt" else posix_process(pid)
-    except Exception:  # noqa: BLE001 - an unreadable process table never permits a recovery
-        running, created = True, None
-    began = parse_time(started)
-    if not running:
-        return False
-    return created is None or began is None or created <= began + START_SLACK_SECONDS
+    return False
 
 
 # --------------------------------------------------------------- source
@@ -1018,13 +949,14 @@ class Transaction:
         write_atomic(self.journal_path, json.dumps(self.journal, indent=2) + "\n")
 
     def begin(self) -> None:
-        """Write the journal in one atomic step; the state lock keeps any other run out."""
+        """Create the journal, which must not exist yet.
+
+        The state lock keeps other runs out. Exclusive creation also stops a
+        second run on a file system that ignores the lock from overwriting
+        this one's journal.
+        """
         self.plan.state.mkdir(parents=True, exist_ok=True)
-        if self.journal_path.exists():
-            raise UsageError(
-                f"{self.journal_path} exists: an earlier run was interrupted. Run this command again to recover it."
-            )
-        self.journal = {
+        journal = {
             "id": self.id,
             "pid": os.getpid(),
             "started": now(),
@@ -1039,7 +971,24 @@ class Transaction:
             "ledger_written": False,
             "committed": False,
         }
-        self.save()
+        try:
+            open(self.journal_path, "xb").close()
+        except FileExistsError:
+            raise UsageError(
+                f"{self.journal_path} appeared while this run was planning, so another install.py run has begun "
+                "(the state folder may be on a file system that ignores the lock). Nothing was changed. Wait for "
+                "that run to finish, then run this command again."
+            ) from None
+        self.journal = journal
+        try:
+            self.save()
+        except BaseException:
+            self.journal = {}  # nothing began: drop the empty journal this run just created
+            try:
+                self.journal_path.unlink()
+            except OSError:
+                pass
+            raise
 
     def rename(self, source: Path, destination: Path, digest: str | None = None) -> None:
         if os.path.lexists(destination):
@@ -1331,12 +1280,6 @@ def recover(state: Path, args, out: Reporter) -> tuple[int, dict]:
             "run's skills folder, stage, backup, and ledger, so this one was not acted on and nothing was "
             "changed. Check the skills folder and the backups by hand, then move the journal aside."
         )
-    if writer_running(journal.get("pid"), journal.get("started")):
-        raise UsageError(
-            f"{journal_path} belongs to a run that may still be active: process {journal.get('pid')}, which began "
-            f"it at {journal.get('started')}, is still running. Nothing was changed. Wait for that run to finish, "
-            "then run this command again."
-        )
     committed = journal.get("committed")
     out.say(f"A previous run ({journal.get('command')} into {journal.get('root')}) did not finish: {journal_path}")
     out.say("  It will be finished (its changes are complete)." if committed else "  Its changes will be rolled back.")
@@ -1528,15 +1471,6 @@ def status_of(target: Target, state: Path, source: Source, ledger: dict, out: Re
     }
 
 
-def journal_writer(path: Path) -> tuple[object, object]:
-    """The process ID and start time a journal records, or (None, None) when it cannot be read."""
-    try:
-        journal = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError):
-        return None, None
-    return (journal.get("pid"), journal.get("started")) if isinstance(journal, dict) else (None, None)
-
-
 def run_status(args, out: Reporter) -> tuple[int, dict]:
     source = load_source()
     state = state_dir()
@@ -1560,16 +1494,13 @@ def run_status(args, out: Reporter) -> tuple[int, dict]:
     for error in errors:
         out.say()
         out.say(error)
-    journal = state / JOURNAL_NAME
-    active = False
-    if journal.exists():
-        writer = journal_writer(journal)
-        active = writer_running(*writer)
+    journal, active = state / JOURNAL_NAME, lock_held(state)
+    if active:
         out.say()
-        if active:
-            out.say(f"An install.py run (process {writer[0]}) is in progress; its journal is {journal}.")
-        else:
-            out.say(f"An interrupted run left {journal}; the next install or uninstall offers to recover it.")
+        out.say(f"Another install.py run is in progress; it holds {state / LOCK_NAME}.")
+    elif journal.exists():
+        out.say()
+        out.say(f"An interrupted run left {journal}; the next install or uninstall offers to recover it.")
     return EXIT_OK, {
         "installer_version": source.version,
         "command": "status",

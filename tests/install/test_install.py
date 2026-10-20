@@ -222,21 +222,6 @@ def outside_state(homes: Homes, entries: dict[str, str]) -> dict[str, str]:
     return {key: value for key, value in entries.items() if key not in parents and not key.startswith(prefix + "/")}
 
 
-def exited_pid() -> int:
-    """The ID of a process that has already ended."""
-    process = subprocess.Popen([sys.executable, "-c", "pass"])
-    process.wait()
-    return process.pid
-
-
-def mark_writer_exited(homes: Homes) -> None:
-    """Make the journal's writer a process that ended, as after a crash, rather than this test process."""
-    path = homes.state / "journal.json"
-    journal = json.loads(path.read_text(encoding="utf-8"))
-    journal["pid"] = exited_pid()
-    path.write_text(json.dumps(journal, indent=2) + "\n", encoding="utf-8", newline="\n")
-
-
 def tree(root: Path) -> dict[str, str]:
     """Every file and folder under root, with each file's SHA-256."""
     if not root.exists():
@@ -847,7 +832,6 @@ class AtomicityTest(HomesTestCase):
         self.assertEqual(code, 1, err)
         self.assertTrue((self.homes.state / "journal.json").exists())
         self.assertNotEqual(tree(self.homes.codex), self.before)
-        mark_writer_exited(self.homes)
         code, payload, err = run_cli(self.homes, "status", "--target", "codex")
         self.assertEqual((payload["interrupted"], payload["active"]), (True, False))
         code, payload, err = run_cli(self.homes, "install", stdin="n\n")
@@ -870,7 +854,6 @@ class AtomicityTest(HomesTestCase):
         self.assertInstalled(self.homes.codex)
         journal = json.loads((self.homes.state / "journal.json").read_text(encoding="utf-8"))
         self.assertTrue(journal["committed"])
-        mark_writer_exited(self.homes)
         # The next run finishes the cleanup and leaves the installed skills alone.
         code, payload, err = run_cli(self.homes, "install", "--yes")
         self.assertEqual((code, payload["result"]), (1, "recovered"), err)
@@ -1148,46 +1131,43 @@ class ConcurrencyTest(HomesTestCase):
             code, payload, err = run_cli(self.homes, "install", "--yes")
             self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
             self.assertIn("another install.py run is using", payload["error"])
+            code, status, err = run_cli(self.homes, "status", "--target", "codex")
+            self.assertEqual((code, status["active"], status["interrupted"]), (0, True, False), err)
         self.assertEqual((tree(self.homes.codex), self.homes.ledger.read_bytes()), before)
         self.assertTrue((self.homes.state / "journal.json").exists())
         # Released, the same journal is recovered.
         code, payload, err = run_cli(self.homes, "install", "--yes")
         self.assertEqual((code, payload["result"]), (1, "recovered"), err)
 
-    def test_recovery_waits_while_the_journal_writer_runs(self) -> None:
-        journal = self.homes.state / "journal.json"
-        write_journal(self.homes, journal_for(self.homes, self.homes.codex, pid=os.getpid(), started=INSTALL.now()))
-        code, payload, err = run_cli(self.homes, "install", "--yes")
-        self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
-        self.assertIn(f"process {os.getpid()}", payload["error"])
-        self.assertIn("is still running", payload["error"])
-        self.assertTrue(journal.exists())
-        code, status, err = run_cli(self.homes, "status", "--target", "codex")
-        self.assertEqual((status["active"], status["interrupted"]), (True, False))
-        # A live process that started after the journal reuses the ID, so it is not the writer.
-        reused = journal_for(self.homes, self.homes.codex, pid=os.getpid(), started="2000-01-01T00:00:00Z")
-        write_journal(self.homes, reused)
-        code, payload, err = run_cli(self.homes, "install", "--yes")
-        self.assertEqual((code, payload["result"]), (1, "recovered"), err)
-        write_journal(self.homes, journal_for(self.homes, self.homes.codex, pid=exited_pid(), started=INSTALL.now()))
-        code, payload, err = run_cli(self.homes, "install", "--yes")
-        self.assertEqual((code, payload["result"]), (1, "recovered"), err)
-
-    def test_the_journal_records_its_writer(self) -> None:
-        with mock.patch.object(INSTALL, "undo", lambda journal, path, log: []):
-            with mock.patch.object(INSTALL.os, "rename", failing_rename(1, OSError("power cut"))):
-                code, payload, err = run_here(self.homes, "install", "--yes")
-        self.assertEqual(code, 1, err)
-        journal = json.loads((self.homes.state / "journal.json").read_text(encoding="utf-8"))
-        self.assertEqual(journal["pid"], os.getpid())
-        self.assertLessEqual(abs(INSTALL.parse_time(journal["started"]) - time.time()), 120)
+    def test_the_lock_alone_decides_whether_a_run_is_active(self) -> None:
+        # The journal names a process that is still running, as when another
+        # user's process reuses a crashed run's ID, or a value that is not a
+        # process ID. The lock is free, so no run is active: status says so,
+        # and the next run recovers.
         sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
         self.addCleanup(sleeper.wait)
         self.addCleanup(sleeper.kill)
-        self.assertTrue(INSTALL.writer_running(sleeper.pid, INSTALL.now()))
-        self.assertFalse(INSTALL.writer_running(sleeper.pid, "2000-01-01T00:00:00Z"))
-        self.assertFalse(INSTALL.writer_running(exited_pid(), INSTALL.now()))
-        self.assertFalse(INSTALL.writer_running(os.getpid(), INSTALL.now()))
+        for writer in ({"pid": sleeper.pid, "started": INSTALL.now()}, {"pid": "unknown", "started": None}):
+            with self.subTest(writer=writer):
+                write_journal(self.homes, journal_for(self.homes, self.homes.codex, **writer))
+                code, status, err = run_cli(self.homes, "status", "--target", "codex")
+                self.assertEqual((code, status["active"], status["interrupted"]), (0, False, True), err)
+                code, payload, err = run_cli(self.homes, "install", "--yes")
+                self.assertEqual((code, payload["result"]), (1, "recovered"), err)
+                self.assertFalse((self.homes.state / "journal.json").exists())
+
+    def test_a_journal_that_appears_while_planning_is_never_overwritten(self) -> None:
+        # On a file system that ignores the lock, another run may begin between
+        # this run's check for a journal and its own; exclusive creation refuses.
+        target = INSTALL.Target("codex", "codex", self.homes.codex)
+        transaction = INSTALL.Transaction(INSTALL.Plan("install", target, self.homes.state, INSTALL.load_source()))
+        other = write_journal(self.homes, journal_for(self.homes, self.homes.codex))
+        before = other.read_bytes()
+        with self.assertRaises(INSTALL.UsageError) as caught:
+            transaction.begin()
+        self.assertIn("appeared while this run was planning", str(caught.exception))
+        self.assertFalse(transaction.started)
+        self.assertEqual(other.read_bytes(), before)
 
 
 class SourceTest(HomesTestCase):
@@ -1270,7 +1250,7 @@ class DeniedAccess(PermissionError):
 class ErrorMessageTest(HomesTestCase):
     """An operating-system error is a plain message with exit 2, never a traceback."""
 
-    def test_an_os_error_is_a_message_not_a_traceback(self) -> None:
+    def test_a_state_folder_it_cannot_use_is_named_with_the_fix(self) -> None:
         self.homes.state.parent.mkdir(parents=True, exist_ok=True)
         self.homes.state.write_text("Not a folder.\n", encoding="utf-8", newline="\n")
         for args in (("install", "--yes"), ("uninstall", "--yes")):
@@ -1278,8 +1258,8 @@ class ErrorMessageTest(HomesTestCase):
                 completed = run_text(self.homes, *args)
                 self.assertEqual(completed.returncode, 2, completed.stderr)
                 self.assertNotIn("Traceback", completed.stdout + completed.stderr)
-                self.assertIn("install.py: [", completed.stdout)
-                self.assertIn("skills-folder", completed.stdout)
+                self.assertIn("install.py: cannot open the lock file", completed.stdout)
+                self.assertIn(f"Make {self.homes.state} a folder you can write to", completed.stdout)
         self.assertFalse(self.homes.codex.exists())
 
     def test_access_denied_suggests_closing_a_host_or_editor(self) -> None:

@@ -85,9 +85,11 @@ October 2026:
 - `--dest` installs skip the duplicate-name check, because the installer
   cannot tell which host reads that folder.
 - One install or uninstall runs at a time per user state folder, through an
-  operating-system file lock. A network file system may not honor that
-  lock, and recovery's check for a still-running process sees only
-  processes on the same machine.
+  operating-system file lock, and that lock alone decides whether an
+  interrupted run is still active. A network file system may not honor the
+  lock. There, a run still refuses to begin while another run's journal
+  exists, but it can mistake an active run for an interrupted one and offer
+  to recover it, so run one at a time.
 - Explicit-only skills are documented as enforced only in Codex (not
   verified). Claude Code may still offer one when a request matches its
   description.
