@@ -13,7 +13,10 @@ In every mode, files matching a default exclude (secrets, credentials,
 environments, editor and vault state, continuity ledgers, backups, git
 metadata, caches, archives) are left out and listed, unless an --include
 pattern names them. Git-ignored files, symbolic links, and the .git folder
-are never packaged.
+are never packaged. When a .git folder or file exists at or above SOURCE, the
+builder needs git to answer for it: if git is missing or fails, the build is
+refused rather than run without git's ignore rules. GIT_DIR, GIT_WORK_TREE,
+GIT_INDEX_FILE, and the other variables that redirect git are ignored.
 
 The JSON summary lists every packaged path, every excluded path with its
 reason, and two digests. contentDigest is the SHA-256 of the lines
@@ -86,6 +89,19 @@ DEFAULT_EXCLUDES = (
     ("desktop.ini", "file"),
     ("*.zip", "file"),
 )
+# Variables that point git at another repository, index, or object store, or
+# stop its search for one. The builder asks git about the source folder only.
+GIT_REDIRECTS = frozenset(
+    {
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CEILING_DIRECTORIES",
+    }
+)
 
 
 class BuildError(Exception):
@@ -126,12 +142,21 @@ def included(name: str, patterns: list[str]) -> bool:
     return False
 
 
+def git_environment() -> dict[str, str]:
+    """This process's environment without the variables that redirect git."""
+    return {key: value for key, value in os.environ.items() if key.upper() not in GIT_REDIRECTS}
+
+
 def git(
     source: Path, *arguments: str, stdin: bytes | None = None
 ) -> subprocess.CompletedProcess[bytes] | None:
     try:
         return subprocess.run(
-            ["git", "-C", str(source), *arguments], input=stdin, capture_output=True, check=False
+            ["git", "-C", str(source), *arguments],
+            input=stdin,
+            capture_output=True,
+            check=False,
+            env=git_environment(),
         )
     except OSError:
         return None
@@ -181,9 +206,36 @@ def collapse(names: list[str], chosen: set[str]) -> dict[str, str]:
     return shown
 
 
+def git_marker(source: Path) -> Path | None:
+    """The nearest .git folder or file at or above source, if there is one."""
+    for folder in (source, *source.parents):
+        if os.path.lexists(folder / ".git"):
+            return folder / ".git"
+    return None
+
+
 def inside_git_work_tree(source: Path) -> bool:
+    """Whether git's ignore rules apply. Fails closed when git cannot answer.
+
+    A source with no .git at or above it is a plain folder, such as an
+    extracted copy. With one, a git that is missing or fails would leave
+    ignored files unrecognized, so the build is refused instead.
+    """
     completed = git(source, "rev-parse", "--is-inside-work-tree")
-    return completed is not None and completed.returncode == 0 and completed.stdout.strip() == b"true"
+    if completed is not None and completed.returncode == 0 and completed.stdout.strip() == b"true":
+        return True
+    marker = git_marker(source)
+    if marker is None:
+        return False
+    if completed is None:
+        reason = "git is not installed or not on PATH"
+    else:
+        detail = completed.stderr.decode("utf-8", "replace").strip().splitlines()
+        reason = detail[0] if detail else f"git rev-parse exited {completed.returncode}"
+    raise BuildError(
+        f"{marker} exists, but git cannot read the work tree ({reason}), so git-ignored "
+        "files cannot be recognized. Fix git, or build from a copy without git metadata."
+    )
 
 
 def walk(source: Path) -> tuple[list[str], list[str]]:

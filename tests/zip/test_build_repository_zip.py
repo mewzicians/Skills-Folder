@@ -14,6 +14,7 @@ import sys
 sys.dont_write_bytecode = True
 
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -22,6 +23,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILDER = ROOT / "skills" / "game-release" / "scripts" / "build_repository_zip.py"
@@ -198,6 +200,71 @@ class GitTreeTest(BuilderTestCase):
         completed = run_builder(str(outer / "mirror"), str(self.base / "outer.zip"))
         self.assertEqual(completed.returncode, 1)
         self.assertIn("no packageable files", completed.stderr)
+
+
+@unittest.skipUnless(shutil.which("git"), "git is not installed")
+class GitFailureTest(BuilderTestCase):
+    """Inside a git work tree, a git that cannot answer refuses the build."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.init_git()
+
+    def build_with(self, environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, *CHILD_FLAGS, str(BUILDER), str(self.source), str(self.base / "out.zip")],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=dict(environment, PYTHONDONTWRITEBYTECODE="1"),
+            check=False,
+        )
+
+    def assert_refused(self, completed: subprocess.CompletedProcess[str], reason: str) -> None:
+        self.assertEqual(completed.returncode, 1, completed.stdout)
+        self.assertIn("git cannot read the work tree", completed.stderr)
+        self.assertIn(reason, completed.stderr)
+        self.assertFalse((self.base / "out.zip").exists())
+
+    def test_git_missing_from_path(self) -> None:
+        empty = self.base / "no-git-here"
+        empty.mkdir()
+        environment = {key: value for key, value in os.environ.items() if key.upper() != "PATH"}
+        completed = self.build_with(dict(environment, PATH=str(empty)))
+        self.assert_refused(completed, "git is not installed or not on PATH")
+
+    def test_a_broken_repository(self) -> None:
+        (self.source / ".git" / "HEAD").write_text("not a ref\n", encoding="utf-8", newline="\n")
+        self.assert_refused(self.build_with(dict(os.environ)), "fatal:")
+
+    def test_a_failing_git_in_process(self) -> None:
+        spec = importlib.util.spec_from_file_location("build_repository_zip_probe", BUILDER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        refusal = subprocess.CompletedProcess([], 128, b"", b"fatal: detected dubious ownership\n")
+        for outcome in (refusal, OSError("git cannot start")):
+            with self.subTest(outcome=outcome):
+                patch = {"side_effect": outcome} if isinstance(outcome, Exception) else {"return_value": outcome}
+                with mock.patch.object(module.subprocess, "run", **patch):
+                    with self.assertRaisesRegex(module.BuildError, "git cannot read the work tree"):
+                        module.build(self.source, self.base / "in-process.zip", [])
+        self.assertFalse((self.base / "in-process.zip").exists())
+
+    def test_redirect_variables_are_ignored(self) -> None:
+        elsewhere = self.base / "elsewhere"
+        elsewhere.mkdir()
+        environment = dict(
+            os.environ,
+            GIT_DIR=str(elsewhere / "missing.git"),
+            GIT_WORK_TREE=str(elsewhere),
+            GIT_INDEX_FILE=str(elsewhere / "index"),
+        )
+        completed = self.build_with(environment)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertNotIn("debug.log", payload["packaged"])
+        self.assertEqual(self.excluded(payload)["debug.log"], "git-ignored, never packaged")
 
 
 class DeterminismTest(BuilderTestCase):
