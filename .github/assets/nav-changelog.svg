@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="134" height="40" viewBox="0 0 134 40" role="img" aria-labelledby="nav-changelog-title">
+  <title id="nav-changelog-title">Changelog</title>
+  <rect width="134" height="40" rx="9" fill="#475569"/>
+  <rect x="1" y="1" width="132" height="38" rx="8" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2"/>
+  <rect x="13.5" y="10.5" width="13" height="19" rx="2.5" fill="none" stroke="#ffffff" stroke-width="2.2"/><path d="M17 16 H23 M17 20 H23 M17 24 H21" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+  <text x="36" y="25.5" fill="#ffffff" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700">Changelog</text>
+</svg>

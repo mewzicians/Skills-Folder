@@ -17,13 +17,15 @@
   <a href="#the-12-skills"><img src=".github/assets/nav-skills.svg" height="40" alt="Skills"></a>
   <a href="#fit-it-to-your-game"><img src=".github/assets/nav-customize.svg" height="40" alt="Customize"></a>
   <a href="docs/COMPATIBILITY.md"><img src=".github/assets/nav-hosts.svg" height="40" alt="Compatibility"></a>
+  <a href="CHANGELOG.md"><img src=".github/assets/nav-changelog.svg" height="40" alt="Changelog"></a>
 </p>
 
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#the-12-skills">Skills</a> ·
   <a href="#fit-it-to-your-game">Customize</a> ·
-  <a href="docs/COMPATIBILITY.md">Compatibility</a>
+  <a href="docs/COMPATIBILITY.md">Compatibility</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 A skill is a folder with a `SKILL.md` file that tells an agent, such as
@@ -59,6 +61,7 @@ themselves stay generic.
 | See what each skill does | [The 12 skills](#the-12-skills) |
 | Check which agent hosts work and what was tested | [Supported hosts](#supported-hosts) and [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) |
 | Upgrade from version 1.0 | [Upgrading from 1.0.x](#upgrading-from-10x) |
+| See what changed in each version | [CHANGELOG.md](CHANGELOG.md) |
 | Point the skills at your own game | [Fit it to your game](#fit-it-to-your-game) |
 | Update, uninstall, or find a backup | [Update, uninstall, and backups](#update-uninstall-and-backups) |
 | See what the automated checks cover | [Validation](#validation) |
@@ -257,6 +260,8 @@ with Python: `install.py` and `tools/verify_package.py`.
    old folder is refused, because Codex would load both.
 4. The installer leaves the old `.game-skill-suite-backup-*` folders alone.
    Move them out of the skills folder yourself once you no longer need them.
+
+[CHANGELOG.md](CHANGELOG.md) lists every breaking change in 1.1.0.
 
 ## Fit it to your game
 
