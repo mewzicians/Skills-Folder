@@ -70,9 +70,10 @@ themselves stay generic.
 
 Skills marked **explicit only** have side effects, so they are meant to run
 only when you name them: type `$game-release` in Codex, or `/game-release` in
-Claude Code. Codex enforces this; Claude Code relies on the description's
-wording (see [Supported hosts](#supported-hosts)). The other skills can also
-start on their own when your request matches their description.
+Claude Code. Codex enforces this (documented, not verified); Claude Code
+relies on the description's wording (see [Supported hosts](#supported-hosts)).
+The other skills can also start on their own when your request matches their
+description.
 
 | Skill | What it helps with |
 | --- | --- |
@@ -99,9 +100,9 @@ smallest change that lasts.
 
 | Host | How to install | Explicit-only skills |
 | --- | --- | --- |
-| Codex (CLI, IDE extension, and app) | `install.py` | Enforced: each one sets `policy.allow_implicit_invocation: false` in its `agents/openai.yaml`, which Codex honors. |
+| Codex (CLI, IDE extension, and app) | `install.py`, or the plugin marketplace (documented, not verified) | Documented, not verified: each one sets `policy.allow_implicit_invocation: false` in its `agents/openai.yaml`; Codex documents that it then starts the skill only when you name it. |
 | Claude Code | The plugin marketplace, or `install.py --target claude` | Not enforced: Claude Code relies on each description saying "Use when the user explicitly asks...". Claude Code's own switch is a key that Codex's skill validator rejects, and both hosts share one `SKILL.md`, so this suite does not set it. |
-| ChatGPT | Only through a workspace admin importing this repository's plugin marketplace, or through Codex in the ChatGPT desktop app, which reads skills from a local project's primary folder. ChatGPT has no documented way for an individual to upload a `SKILL.md`. | Not verified. |
+| ChatGPT | Documented, not verified: the ChatGPT desktop app uses standalone skills, as Codex CLI and the IDE extension do, so `install.py` serves it too; its plugin directory reads this repository's marketplaces when you open the repository, or a personal `~/.agents/plugins/marketplace.json`; `codex plugin marketplace add mewzicians/Skills-Folder` adds the marketplace; and for an organization, a workspace admin can import the repository. | Not verified. |
 
 Other tools that read `SKILL.md` folders can use `install.py --dest`.
 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) lists what was verified on a
@@ -112,6 +113,7 @@ real machine and what is only documented.
 | Route | You need |
 | --- | --- |
 | Claude Code plugin | Claude Code. No Python. |
+| Codex plugin | Codex CLI. No Python. |
 | `install.py` (Codex or Claude Code) | Python 3.11 or later, and the files from [Get the files](#get-the-files). |
 | Copy by hand | Nothing extra: copy each folder in `skills/` into your host's skills folder. You lose the upgrade checks and backups. |
 
@@ -173,8 +175,18 @@ python install.py install
 
 This copies the skills to `~/.agents/skills` (on Windows,
 `%USERPROFILE%\.agents\skills`), where Codex looks for your personal skills.
-The repository also carries Codex plugin files; that route is documented but
-not verified (see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)).
+
+**Plugin marketplace (documented, not verified).** In a terminal, run:
+
+```text
+codex plugin marketplace add mewzicians/Skills-Folder
+```
+
+Then start Codex, type `/plugins`, and install `game-dev-skills` from the
+`skills-folder` marketplace. Plugin skills carry the plugin's name, so a
+plugin install names them like `$game-dev-skills:game-release`; the names in
+this README, such as `$game-release`, are for `install.py` installs. Use one
+route, not both, so each skill appears once.
 
 ### What the installer does
 
@@ -186,22 +198,27 @@ and changes nothing, when:
 | It reports | Meaning | To go ahead anyway |
 | --- | --- | --- |
 | newer | The installed copy has a newer recorded version. | `--allow-downgrade` |
-| unrecorded or modified | The copy differs, and this installer did not put those bytes there: you edited it, or another tool or version 1.0 installed it. | `--replace-modified` (the old copy is backed up first) |
-| would share its name | The same skill is in another folder that the same host loads, such as `~/.codex/skills`. Both paths are printed. | Remove one copy, or `--allow-duplicate-names` |
+| unrecorded, modified, or same-version | The copy differs, and this installer did not put those bytes there: you edited it, another tool or version 1.0 installed it, or the skill changed without a new `VERSION`. | `--replace-modified` (the old copy is backed up first) |
+| would share its name | Another skill with that name is in a folder the same host loads, such as `~/.codex/skills`. For Codex this includes a renamed folder whose `SKILL.md` has that name, and copies in subfolders. Both paths are printed. | Remove one copy, or `--allow-duplicate-names`. For version 1.0 copies, see [Upgrading from 1.0.x](#upgrading-from-10x). |
 | link | The installed copy is a symbolic link or junction. | Replace the link by hand. |
+| unreadable | The installed copy, or a folder in it, cannot be read. | Fix its permissions. |
 
 It also offers to move three skills that version 1.0 installed and 1.1
 retired (`game-github-package`, `game-skill-creator`, and
 `game-skill-installer`) to backups, and asks separately before it does.
 Changes are staged next to the skills folder and swapped in together; if
-anything fails, every change is rolled back. It never uses the network.
+anything fails, or you press Ctrl+C, every change is rolled back. If it is
+interrupted again during that rollback, or after every change is already
+made, it says so, and the next run finishes the job. Only one install or
+uninstall runs at a time: a second one refuses until the first finishes. It
+never uses the network.
 
 Other places to install:
 
 | Target | Skills folder | Loaded by |
 | --- | --- | --- |
 | `--target codex` (the default) | `~/.agents/skills` | Codex, in every project |
-| `--target codex-legacy` | `$CODEX_HOME/skills`, or `~/.codex/skills` when `CODEX_HOME` is unset | Codex's older personal folder, where version 1.0 installed |
+| `--target codex-legacy` | `$CODEX_HOME/skills`, or `~/.codex/skills` when `CODEX_HOME` is unset | Codex, from a personal folder that its source marks deprecated and still reads for backward compatibility. Version 1.0 installed here; prefer `--target codex`. |
 | `--target codex-project --project DIR` | `DIR/.agents/skills` | Codex, in that project; also Codex in the ChatGPT desktop app when `DIR` is the project's primary folder |
 | `--target claude` | `~/.claude/skills`, or `$CLAUDE_CONFIG_DIR/skills` | Claude Code, in every project |
 | `--target claude-project --project DIR` | `DIR/.claude/skills` | Claude Code, in that project |
@@ -220,7 +237,11 @@ installed in each folder, which copies are current, and any duplicates.
 
 - **Update:** run `git pull` (or download a fresh ZIP), then run the same
   `python install.py install` command again. Current skills are skipped and
-  older ones are upgraded with a backup.
+  older ones are upgraded with a backup. A skill whose files changed without
+  a new `VERSION`, as between releases, is refused as `same-version`,
+  because the installer cannot tell that change from your own edit. Check
+  that you did not edit the installed copy, then run the command again with
+  `--replace-modified`; the old copy is backed up first.
 - **Uninstall:** `python install.py uninstall`, with the same `--target` you
   installed with. Skills move to a backup folder; nothing is deleted. It
   refuses copies you changed unless you add `--include-modified`.
@@ -249,16 +270,20 @@ with Python: `install.py` and `tools/verify_package.py`.
 
 1. See what you have: `python install.py status`.
 2. Choose one:
+   - **Move to the new default folder (recommended):**
+     `python install.py uninstall --target codex-legacy --include-modified`,
+     then `python install.py install`.
+     [Codex's source](https://github.com/openai/codex/blob/cb00a67569450aea2fdb1b1f31fc042fc0b5416f/codex-rs/ext/skills/src/host_roots.rs)
+     marks the old folder, `$CODEX_HOME/skills`, as deprecated and reads it
+     only for backward compatibility.
    - **Keep the old folder:**
      `python install.py install --target codex-legacy --replace-modified`.
      The installer has no record of the 1.0 copies, so it needs
      `--replace-modified`. It backs up each old copy before replacing it and
      offers to move the retired skills to backups.
-   - **Move to the new default folder:**
-     `python install.py uninstall --target codex-legacy --include-modified`,
-     then `python install.py install`.
 3. Installing into the new default while the 1.0 copies are still in the
-   old folder is refused, because Codex would load both.
+   old folder is refused, because Codex would load both; the refusal prints
+   both commands above.
 4. The installer leaves the old `.game-skill-suite-backup-*` folders alone.
    Move them out of the skills folder yourself once you no longer need them.
 
@@ -303,8 +328,9 @@ The badge at the top shows the latest result.
 5. **Run tool tests:** the frontmatter, package-verifier, skill-script, and
    archive-builder tests.
 6. **Run the installer tests in temporary homes:** every target, decision,
-   refusal, rollback, backup, and uninstall, with a socket guard, failing if
-   the runner's real skill folders change.
+   refusal, rollback, interruption, concurrent run, damaged ledger or
+   journal, backup, and uninstall, with a socket guard, failing if the
+   runner's real skill folders change.
 7. **Run the continuity self-test.**
 8. **Run the auditor adversarial self-test.**
 9. **Compare the frontmatter schema with PyYAML,** pinned by hash.
