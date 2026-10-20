@@ -252,12 +252,8 @@ def plant_mutation(mutated_package: Path, category: str) -> tuple[list[str], str
     metadata_path = mutated_package / "agents" / "openai.yaml"
     if category == "trigger":
         path = skill_path
-        old = (
-            "Do not use for ordinary game-skill creation or editing unless "
-            "the user requests an audit, validation, capability-gap analysis, "
-            "behavioral repair, or readiness judgment."
-        )
-        new = "Use for ordinary skill creation and editing too."
+        old = "not for ordinary skill creation."
+        new = "also for ordinary skill creation and editing."
         description = "Broaden the trigger to unrelated skill creation and editing."
         expected = "The audit must report a trigger-precision failure and restore the exclusion."
     elif category == "context":

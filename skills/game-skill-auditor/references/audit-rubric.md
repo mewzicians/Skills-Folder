@@ -56,8 +56,9 @@ row as `Pass`, `Partial`, `Fail`, or `Unknown` and attach evidence.
 | Mission fit | Does the capability strengthen the approved mission without diluting the skill's existing identity? |
 | Tool reality | Are proposed tools, scripts, research, and delegated roles actually available and permitted? |
 | Evolution boundary | Are new outcomes, broader triggers, permissions, side effects, costs, or trust changes returned for user approval before implementation? |
-| Delegation design | If chuds are proposed, are their roles, inputs, tool and context limits, write scopes, outputs, integration owner, stop conditions, evidence artifacts, and any merge plan explicit? |
-| Delegation verification | Do preserved assignments and reports prove the `Chud` naming convention and role boundaries, and does the main agent independently verify chud output before integration? |
+| Delegation design | If delegated agents are proposed, are their roles, inputs, tool and context limits, write scopes, outputs, integration owner, stop conditions, evidence artifacts, and any merge plan explicit? |
+| Delegation verification | Do preserved assignments and reports prove role boundaries, and does the main agent independently verify delegated output before integration? |
+| Delegation convention | Only when project guidance or the project profile declares a delegation convention: do preserved assignments and reports follow it? |
 | Capability evidence | Is the enhancement tested against the original contract, a regression, and the bottleneck it is meant to remove? |
 | Complexity cost | Is the expected benefit worth added context, maintenance, latency, coordination, and failure modes? |
 

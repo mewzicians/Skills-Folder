@@ -67,10 +67,16 @@ materially different prompts, such as:
 Prefer different model families when available. Distinct contexts using the
 same model provide context independence, not model independence. Record both.
 
-When these roles are implemented with delegated agents in this user's
-environment, begin each assignment by addressing the agent as `Chud` and refer
-to delegated agents as chuds in reports. Preserve unique actor and context IDs;
-the shared role label does not establish or weaken independence by itself.
+Do not let one reasoning context silently author the contract, design all
+tests, execute them, and award the final verdict when independent evaluation
+is available. Merely labeling sections in one context does not create
+independence, and more instances of the target auditing itself are still
+self-evaluation.
+
+When delegated agents implement these roles, preserve unique actor and context
+IDs; a shared role label does not establish or weaken independence by itself.
+Follow any delegation convention that project guidance or the project profile
+declares.
 
 ## Control Information Leakage
 
@@ -235,14 +241,14 @@ Payload timestamps, not only their provenance wrappers, must follow the frozen
 contract and may not postdate the wrapper that records them. For Level 4, every
 requirement provenance actor must match the independent contract role.
 
-After changing the assessor or evidence schema, run `python
-scripts/self_test.py`. Every probe must match its exact expected readiness;
-under-awards are regressions too.
+After changing the assessor or evidence schema, run
+`python -B scripts/self_test.py`. Every probe must match its exact expected
+readiness; under-awards are regressions too.
 
 Run:
 
-```powershell
-python scripts/assess_evidence.py evidence.json
+```text
+python -B scripts/assess_evidence.py evidence.json
 ```
 
 Use `--require-level` to make Level 1 a deterministic release gate. Requests
@@ -252,9 +258,8 @@ execution, semantic judgment, or actors. Inspect
 manual adjudication. To validate the internal completeness of Level 4
 evidence, provide an external review:
 
-```powershell
-python scripts/assess_evidence.py evidence.json `
-  --external-review-file path/to/external-review.json
+```text
+python -B scripts/assess_evidence.py evidence.json --external-review-file path/to/external-review.json
 ```
 
 The review JSON must contain `verdict: "pass"`, the exact `target_sha256`,
@@ -265,10 +270,8 @@ separately supplied file and name the same review actor.
 To validate the completeness of Level 5 evidence, also provide an external
 user-supplied artifact:
 
-```powershell
-python scripts/assess_evidence.py evidence.json `
-  --external-review-file path/to/external-review.json `
-  --user-acceptance-file path/to/user-acceptance.json
+```text
+python -B scripts/assess_evidence.py evidence.json --external-review-file path/to/external-review.json --user-acceptance-file path/to/user-acceptance.json
 ```
 
 The acceptance file must be outside the target package and match the hashed

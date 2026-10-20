@@ -73,31 +73,34 @@ until approved.
 Reject additions whose benefit is speculative, duplicative, unavailable,
 untestable, or smaller than their context and maintenance cost.
 
-## Design Delegated Chud Roles
+## Design Delegated-Agent Roles
 
 Delegation is useful for parallel work, specialized expertise, independent
-evaluation, or adversarial review. It is not automatically better.
+evaluation, or adversarial review. It is not automatically better. Do not add
+vague "use more agents" instructions.
 
-When delegation is permitted and justified:
+When delegation is permitted and justified, specify why delegation is better
+than one agent, then:
 
-1. Begin each assignment by addressing the delegated agent as `Chud`.
-2. State the chud's exact role, inputs, allowed tools, and forbidden context.
-3. Give it a bounded write scope or make the task explicitly read-only.
-4. Require a concrete output, evidence, and stop condition.
-5. Keep one main-agent owner responsible for integration and final judgment.
-6. Prevent multiple chuds from editing the same artifact without an explicit
-   merge owner and conflict plan.
-7. Preserve each raw assignment and final delegation report. Verify that the
-   assignment begins with `Chud`, reports use `chuds`, and the artifacts record
-   role, inputs, tool and context limits, write scope, output, stop condition,
-   integration owner, and any merge plan.
-8. Independently check chud outputs against source artifacts or test evidence
-   before integrating them into the audit conclusion.
-9. Test whether delegation improved the bottleneck rather than merely
+1. State each delegated agent's exact role, inputs, allowed tools, and
+   forbidden context.
+2. Give it a bounded write scope or make the task explicitly read-only.
+3. Require a concrete output, evidence, and stop condition.
+4. Keep one main-agent owner responsible for integration and final judgment.
+5. Prevent multiple delegated agents from editing the same artifact without an
+   explicit merge owner and conflict plan.
+6. Preserve each raw assignment and final delegation report. Verify that the
+   artifacts record role, inputs, tool and context limits, write scope, output,
+   stop condition, integration owner, and any merge plan. When project
+   guidance or the project profile declares a delegation convention, also
+   verify that assignments and reports follow it.
+7. Independently check delegated output against source artifacts or test
+   evidence before integrating it into the audit conclusion.
+8. Test whether delegation improved the bottleneck rather than merely
    producing more prose.
 
-The label `chud` is the user's friendly convention. It does not replace unique
-actor IDs, professional instructions, safety, or evidence.
+A delegation convention is project guidance. It never replaces unique actor
+IDs, professional instructions, safety, or evidence.
 
 ## Present Recommendations
 
