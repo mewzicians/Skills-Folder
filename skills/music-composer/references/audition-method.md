@@ -19,6 +19,10 @@ ideas waste the listener's attention.
 
 ## Run A Diagnostic Comparison
 
+Aim the comparison at the earliest broken decision: intention, raw material,
+identity, phrase function, form, arrangement, sound, performance, mix, or
+technology.
+
 1. Name the question.
 2. Preserve an approved or exact control.
 3. Hold irrelevant variables constant.
@@ -54,7 +58,8 @@ Brevity is not a reason to omit it from a substantive decision.
 Interpret the user's unprompted reaction before explaining what the music was
 meant to communicate. Treat a disliked sound, melody, arrangement, or
 production choice as taste evidence, not a defect; call something a technical
-defect only after reproduction or source-level evidence. When a verdict
+defect only after reproduction or source-level evidence, and technical
+explanation is not emotional proof. When a verdict
 accepts part of a candidate and rejects part, record each part separately
 instead of promoting or rejecting the whole (see
 [artifact-lifecycle.md](artifact-lifecycle.md)).

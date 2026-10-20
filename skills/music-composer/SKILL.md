@@ -45,10 +45,10 @@ profile names or repository guidance identifies, if any. Only for
 project-attached work, follow the profile to the music brief, current approval
 records, the active audition, score, session, or audio source, the
 implementation when a claim depends on behavior, and a worklog only when
-history or approval evidence matters. Read supplied music, notes, references,
-or recordings, not remembered summaries. With no guide, use the bundled
-references and a compact working brief; create permanent documentation only
-when the user or project workflow asks.
+history or approval evidence matters. Read supplied music, notes,
+transcripts, references, or recordings, not remembered summaries. With no
+guide, use the bundled references and a compact working brief; create
+permanent documentation only when the user or project workflow asks.
 
 Reconcile conflicts by kind. The newest explicit user message or correction
 governs direction. For facts, current approval and status sources outrank the
@@ -92,9 +92,8 @@ three, only when subjective intent genuinely remains.
 
 ## Develop The Music
 
-Pick the smallest working mode: direction, identity, composition, diagnosis,
-arrangement and production, interactive music, or technical audio (only when
-requested). Do not solve an identity problem with production polish or a form
+Pick the smallest working mode, from direction to technical audio (only on
+request). Do not solve an identity problem with production polish or a form
 problem with more layers. State a one-sentence emotional north star; inventory
 selected material, feedback, constraints, and open decisions; protect two or
 three identity anchors; locate the earliest broken decision; generate two to
@@ -106,15 +105,15 @@ for working modes, motifs, transformation, character status, and game music.
 
 ## Use References Responsibly
 
-Extract qualities from references, such as emotional arc, phrase motion,
-harmony, or groove. Never copy protected melody, lyrics, arrangement,
-signature sound design, performance, or recording. Treat an admired composer's
-name as a standard of craft. When a request asks to retain recognizable
-expression too closely, decline that replication and redirect to one
-source-independent identity decision or focused audition, not another preset
-formula. Separate research evidence, genre convention, taste, and project
-history; treat rigid formulas and unsupported emotional claims as hypotheses
-to audition.
+Extract qualities, such as emotional arc or groove, from references. Never
+copy protected melody, lyrics, arrangement, signature sound design,
+performance, or recording. Treat an admired composer's name as a standard of
+craft, drawing transferable principles into original material. When a
+request asks to retain recognizable expression too closely, decline that
+replication and redirect to one source-independent identity decision or
+focused audition, not another preset formula. Separate research evidence,
+genre convention, taste, and project history; treat rigid formulas and
+unsupported emotional claims as hypotheses to audition.
 
 ## Audition And Report
 
@@ -138,14 +137,14 @@ and the action. Never delete one; an approved removal goes to a dated
 quarantine with a manifest and hashes unless project rules name another
 method.
 
-For substantial reviews, report the verdict, useful composer questions,
-reservations (critical problems, tuning watchpoints, and taste, or
-`None identified`), the recommendation, the next audition, and the exact
-decision status with its scope and evidence level: hypothesis, selected
-component, approved work, exploratory material, shipped implementation, or
-still open. Explain technical language through what the listener will hear,
-and say so plainly when music is pleasant but unfocused, impressive but
-emotionally flat, or overworked around a weak central idea.
+Match the response to the decision. For substantial reviews, report the
+verdict, useful composer questions, reservations (critical problems, tuning
+watchpoints, and taste, or `None identified`), the recommendation, the next
+audition, and the exact decision status with its scope and evidence level:
+hypothesis, selected component, approved work, exploratory material, shipped
+implementation, or still open. Explain technical language through what the
+listener will hear, and say so plainly when music is pleasant but unfocused,
+impressive but emotionally flat, or overworked around a weak central idea.
 
 ## Editing Discipline
 
