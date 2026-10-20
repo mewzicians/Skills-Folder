@@ -30,6 +30,7 @@ import json
 import os
 import re
 import subprocess
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -116,45 +117,107 @@ BODY_TOKEN_CAPS = {
 # Neutrality lint (part of the default run; --lint runs it alone). Every
 # pattern is built from fragments, so this file never contains anything it
 # reports.
-# Only self-granting forms: ordinary consent text such as "after the user
-# grants approval" or "to remove this local installation" is not a hit.
-GRANT_PHRASES = (
-    ("has", "stand" + "ing", "appro" + "val"),
-    ("has", "stand" + "ing", "permis" + "sion"),
-    ("gra" + "nts", "stand" + "ing"),
-    ("gra" + "nted", "stand" + "ing"),
-    ("This", "local", "instal" + "lation", "has", "stand" + "ing"),
-    ("permis" + "sion", "as", "autho" + "rity"),
+#
+# Text is normalized before matching, and never gains or loses a line break, so
+# line numbers still point at the original: NFKC folds full-width and other
+# compatibility forms, zero-width characters and soft hyphens are dropped, and
+# common Cyrillic and Greek lookalikes become the Latin letters they imitate.
+# The prose checks (grant forms and the nickname) also drop Markdown emphasis
+# and code marks.
+ZERO_WIDTH = dict.fromkeys(map(ord, "\u00ad\u180e\u200b\u200c\u200d\u2060\ufeff"))
+LOOKALIKES = str.maketrans(
+    "\u0410\u0412\u0415\u041a\u041c\u041d\u041e\u0420\u0421\u0422\u0425\u0405\u0406\u0408"
+    "\u0430\u0435\u043e\u0440\u0441\u0443\u0445\u0455\u0456\u0458\u04bb"
+    "\u0391\u0392\u0395\u0396\u0397\u0399\u039a\u039c\u039d\u039f\u03a1\u03a4\u03a5\u03a7"
+    "\u03bf\u03b1\u03b9\u03ba\u03bd\u03c1\u03c4\u03c5",
+    "ABEKMHOPCTXSIJ" "aeopcyxsijh" "ABEZHIKMNOPTYX" "oaikvptu",
 )
-# Words may wrap onto the next line, so any whitespace separates them.
-GRANT_FORM = re.compile(
-    "|".join(r"\b" + r"\s+".join(map(re.escape, words)) + r"\b" for words in GRANT_PHRASES),
-    re.IGNORECASE,
+PROSE_MARKS = str.maketrans({"*": "", "`": "", "_": " ", "\u2019": "'"})
+
+# Only self-granting forms: consent text such as "after the user grants
+# approval", "to remove this local installation", or a court that grants
+# standing to a plaintiff is not a hit. Words may wrap onto the next line or
+# join with hyphens.
+SEP = r"[\s-]+"
+STANDING = "stand" + "ing"
+GRANT_OBJECT = "(?:appro" + "vals?|permis" + "sions?)"
+GRANT_FORMS = (
+    # has, have, holds, carries, or assumes + standing + approval or permission
+    r"\b(?:has|have|holds?|carr(?:y|ies)|assumes?)" + SEP + STANDING + SEP + GRANT_OBJECT,
+    # grant, grants, granted, or granting + standing + approval or permission
+    r"\bgra" + "nt(?:s|ed|ing)?" + SEP + STANDING + SEP + GRANT_OBJECT,
+    # give, gives, given, or giving, then up to two words such as "the agent"
+    r"\bgiv(?:e|es|en|ing)(?:" + SEP + "[A-Za-z]+){0,2}" + SEP + STANDING + SEP + GRANT_OBJECT,
+    # standing + approval or permission + is, are, was, were, or has been + granted
+    r"\b" + STANDING + SEP + GRANT_OBJECT + SEP
+    + r"(?:is|are|was|were|(?:has|have)" + SEP + "been)(?:" + SEP + "hereby)?" + SEP + "gra" + "nted",
+    r"\bthis" + SEP + "local" + SEP + "instal" + "lation" + SEP + "has" + SEP + STANDING,
+    r"\bpermis" + "sion" + SEP + "as" + SEP + "autho" + "rity",
+    r"\b(?:is|are)" + SEP + "pre-?appro" + "ved" + SEP + "(?:to|for)",
+    r"\bwith" + "out" + SEP + "ask" + "ing" + "(?:" + SEP + "for)?" + SEP + GRANT_OBJECT,
 )
-NEGATION = re.compile(r"\b(?:not|never|no|nobody|none|cannot|without|nor)\b|n't\b", re.IGNORECASE)
-# A negation exempts a phrase only from the last few words of its own clause.
-CLAUSE_BREAK = re.compile(r"[.!?;:,](?:\s|$)|\n\s*\n")
-NEGATION_WINDOW = 3
-# The profile template's field for pointing at a user's own written grant.
-STANDING_FIELD = re.compile(r"^\s*[-*]\s*" + "Stand" + "ing appro" + r"vals\b", re.IGNORECASE)
+GRANT_FORM = re.compile("|".join(f"(?:{form})" + r"\b" for form in GRANT_FORMS), re.IGNORECASE)
+# A grant form is exempt when, within its own clause, a negator stands at most
+# two words before it ("nobody has", "never grants", "does not have"), or a
+# condition introduces it ("if", "whether", "unless", or "until", "once",
+# "after", "when", or "before" with a grant the user gives in writing), or the
+# sentence is a question, or it is quoted after a negation ("do not write '...'").
+# A conjunction ends the search, so "asks no questions and has" is still a hit.
+WORD = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
+NEGATORS = {"cannot", "neither", "never", "no", "nobody", "none", "nor", "not", "nothing", "nowhere", "without"}
+NEGATION_REACH = 3
+CONJUNCTIONS = {
+    "although", "and", "as", "because", "but", "for", "hence", "or", "since", "so", "then", "though",
+    "thus", "while", "yet",
+}
+CONDITIONALS = {"if", "unless", "whether"}
+TIME_CONDITIONS = {"after", "before", "once", "until", "when"}
+IN_WRITING = re.compile(r"\bin\s+writ" + r"ing\b", re.IGNORECASE)
+CLAUSE_BREAK = re.compile(r"[.!?;:,](?:\s|$)|\n\s*\n|\n\s*(?:[-+]|\d+[.)])\s")
+SENTENCE_END = re.compile(r"[.!?](?=\s|$)|\n\s*\n")
+QUOTES = "'\"\u201c\u201d\u2018"
+# The profile template's field for pointing at a user's own written grant,
+# exempt only as this exact line.
+STANDING_FIELD = "- Stand" + "ing approvals (path to the user's own written grant; default none):"
 NICKNAME = re.compile(r"\b" + "ch" + "ud" + r"s?\b", re.IGNORECASE)
-# Windows (C:\\...), Git Bash (/c/...), WSL (/mnt/c/...), macOS, and Linux
-# home folders. Each named group captures the account; a trailing slash is
-# optional.
+# Windows drive paths (also in file URLs, where the colon may be %3A), UNC
+# shares, Git Bash (/c/...), WSL (/mnt/c/...), macOS, and Linux home folders,
+# and tilde-account paths. Each named group captures the account; a trailing
+# slash is optional.
 USER_PATH = re.compile(
-    r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]{1,2}(?i:" + "us" + r"ers)[\\/]{1,2}"
+    r"(?<![A-Za-z0-9])[A-Za-z](?::|%3[Aa])[\\/]{1,2}(?i:" + "us" + r"ers)[\\/]{1,2}"
     + r"(?P<win>[^\\/\s\"'`<>]+(?: (?i:users?)\b)?)"
+    + r"|(?<![\\\w])\\\\[^\\/\s]+\\(?i:" + "us" + r"ers)\\(?P<unc>[^\\/\s\"'`<>]+)"
     + r"|(?<![\w.~-])(?:/mnt)?/[A-Za-z]/(?i:" + "us" + r"ers)/(?P<drive>[A-Za-z0-9._-]+)(?![A-Za-z0-9._-])"
     + r"|(?<![\w.~-])/(?:" + "Us" + "ers|" + "ho" + r"me)/(?P<posix>[A-Za-z0-9._-]+)(?![A-Za-z0-9._-])"
+    + r"|(?<![\w~])~(?P<tilde>[A-Za-z][A-Za-z0-9._-]*)(?=[\\/])"
 )
-# Shared Windows profiles and CI runner accounts are not personal.
-SHARED_ACCOUNTS = {"public", "default", "default user", "all users", "runner", "runneradmin"}
+# Shared Windows profiles, CI runner and package-manager accounts, and
+# placeholders such as USERNAME, %USERNAME%, $env:USERNAME, or <user> are not
+# personal.
+SHARED_ACCOUNTS = {
+    "all users", "default", "default user", "linuxbrew", "name", "public", "runner", "runneradmin",
+    "shared", "user", "username", "you",
+}
+PLACEHOLDER_MARKS = re.compile(r"^\$(?:env:)?|[%{}<>\[\]]", re.IGNORECASE)
 EMAIL = re.compile(
-    r"(?<![\w.%+-])[A-Za-z0-9._%+-]+@"
-    r"(?P<domain>[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*"
-    r"\.(?P<tld>[A-Za-z]{2,24}))\b"
+    r"(?<![\w.%+-])[\w.%+-]+@"
+    r"(?P<domain>[^\W_](?:[\w-]*[^\W_])?(?:\.[^\W_](?:[\w-]*[^\W_])?)*\.(?P<tld>[^\W\d_]{2,24}))\b"
 )
+# Documentation domains (RFC 2606), noreply domains, and SSH remotes on known
+# git hosts name no person. Each is matched as a whole domain.
 ALLOWED_EMAIL_DOMAINS = ("example.com", "example.org", "example.net")
+RESERVED_TLDS = {"example", "invalid", "localhost", "test"}
+NOREPLY_DOMAINS = {"users.noreply.github.com", "users.noreply.gitlab.com", "users.noreply.codeberg.org"}
+SERVICE_ADDRESSES = {"noreply@" + "github.com"}
+GIT_HOSTS = {
+    "bitbucket.org", "codeberg.org", "gitea.com", "github.com", "gitlab.com", "git.sr.ht",
+    "ssh.dev.azure.com", "vs-ssh.visualstudio.com",
+}
+# An SSH login names a host account, not a person: after ssh, scp, sftp, or
+# rsync, after ssh://, or on a host inside an internal-only domain.
+SSH_TARGET = re.compile(r"(?:\b(?:ssh|scp|sftp|rsync)(?:\s+-\S+(?:\s+\d+)?)*\s+|ssh://)$", re.IGNORECASE)
+INTERNAL_LABELS = {"internal", "intranet", "lan", "local", "localdomain"}
 # An "@2x" or "@1.5x" asset name, or a file suffix where a domain would end.
 SCALED_ASSET = re.compile(r"\d+(?:\.\d+)?x\.", re.IGNORECASE)
 FILE_SUFFIXES = {
@@ -162,10 +225,16 @@ FILE_SUFFIXES = {
     "ogg", "otf", "pdf", "png", "py", "svg", "toml", "ttf", "txt", "wav", "webp", "woff", "woff2",
     "yaml", "yml",
 }
-# A wiki's Home.md is ordinary; vault folders are the private markers.
-VAULT_NAME = re.compile(r"(?i:\." + "obsi" + r"dian)\b|\b" + "Wi" + r"ki/|\b" + "In" + r"box/")
+# Vault markers, matched only as exact folder names: the Obsidian settings
+# folder (not a longer name that starts the same way) or a capitalized Wiki
+# folder marks a vault on its own. An Inbox folder or a lowercase wiki folder is
+# ordinary alone and a marker only alongside another marker. A wiki's Home.md is
+# ordinary.
+STRONG_VAULT = re.compile(
+    r"(?<![\w.-])\.(?i:" + "obsi" + r"dian)(?![\w-])(?!\.\w)|(?<![\w.-])" + "Wi" + r"ki[\\/]"
+)
+WEAK_VAULT = re.compile(r"(?<![\w.-])(?i:(?P<kind>" + "in" + "box|" + "wi" + r"ki))[\\/]")
 LEDGER_FILE = "context_" + "continuity*.md"
-
 
 @dataclass(frozen=True)
 class Problem:
@@ -271,10 +340,11 @@ def check_text(path: str, data: bytes, problems: list[Problem]) -> None:
 
 
 def check_forbidden(path: str, data: bytes, problems: list[Problem]) -> None:
-    match = FORBIDDEN.search(path)
+    # The lint's normalization also catches full-width and lookalike spellings.
+    match = FORBIDDEN.search(normalize(path))
     if match:
         problems.append(Problem("FORBIDDEN_TERM", path, "the path contains a private project name."))
-    text = data.decode("utf-8", "replace")
+    text = normalize(data.decode("utf-8", "replace"))
     match = FORBIDDEN.search(text)
     if match:
         line = text.count("\n", 0, match.start()) + 1
@@ -546,23 +616,77 @@ def line_at(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
 
-def negated(text: str, start: int) -> bool:
-    """Whether the words just before a phrase negate it, as in 'nobody has ...'.
+def normalize(text: str) -> str:
+    """Fold compatibility forms and lookalike letters, and drop zero-width characters.
 
-    Only the last NEGATION_WINDOW words of the phrase's own clause count, so
-    "Ask nobody; the agent has ..." is still a hit.
+    Every step keeps each line break, so line numbers in the result still
+    point at the original text.
     """
-    clause = CLAUSE_BREAK.split(text[max(0, start - 80) : start])[-1]
-    words = re.findall(r"[A-Za-z']+", clause)[-NEGATION_WINDOW:]
-    return NEGATION.search(" ".join(words)) is not None
+    return unicodedata.normalize("NFKC", text.translate(ZERO_WIDTH)).translate(LOOKALIKES)
+
+
+def prose(text: str) -> str:
+    """The normalized text without Markdown emphasis or code marks."""
+    return normalize(text).translate(PROSE_MARKS)
+
+
+def clause_before(text: str, start: int) -> str:
+    """The text from the start of a phrase's clause up to the phrase."""
+    return CLAUSE_BREAK.split(text[max(0, start - 200) : start])[-1]
+
+
+def sentence_after(text: str, end: int) -> tuple[str, str]:
+    """The rest of a phrase's sentence, and the mark that ends it."""
+    match = SENTENCE_END.search(text, end)
+    if match is None:
+        return text[end:], ""
+    return text[end : match.start()], match.group(0)
+
+
+def context_exempts(before: str, after: str) -> bool:
+    """Whether the words before a phrase negate it or make it a condition."""
+    words = [word.lower() for word in WORD.findall(before)]
+    for distance, word in enumerate(reversed(words), start=1):
+        if word in CONJUNCTIONS:
+            return False
+        if distance <= NEGATION_REACH and (word in NEGATORS or word.endswith("n't")):
+            return True
+        if word in CONDITIONALS or (word in TIME_CONDITIONS and IN_WRITING.search(after)):
+            return True
+    return False
+
+
+def quote_opening(line: str, start: int, end: int) -> int | None:
+    """Where an open quotation holding line[start:end] begins, or None."""
+    opening = None
+    for index in range(min(start, len(line))):
+        char = line[index]
+        if char not in QUOTES:
+            continue
+        before = line[index - 1] if index else " "
+        after = line[index + 1] if index + 1 < len(line) else " "
+        if opening is None:
+            if (before.isspace() or before in "([{") and not after.isspace():
+                opening = index
+        elif not before.isspace() and not after.isalnum():
+            opening = None
+    if opening is not None and any(char in QUOTES for char in line[end:]):
+        return opening
+    return None
+
+
+def account_is_shared(account: str) -> bool:
+    return PLACEHOLDER_MARKS.sub("", account).casefold() in SHARED_ACCOUNTS
 
 
 def user_path_lines(text: str) -> list[int]:
-    """Lines holding a personal home-folder path; shared and CI accounts pass."""
+    """Lines holding a personal home-folder path; shared, CI, and placeholder accounts pass."""
     lines = set()
     for match in USER_PATH.finditer(text):
-        account = next(value for value in match.group("win", "drive", "posix") if value is not None)
-        if account.casefold() not in SHARED_ACCOUNTS:
+        account = next(
+            value for value in match.group("win", "unc", "drive", "posix", "tilde") if value is not None
+        )
+        if not account_is_shared(account):
             lines.add(line_at(text, match.start()))
     return sorted(lines)
 
@@ -574,19 +698,45 @@ def email_lines(text: str) -> list[int]:
         domain = match.group("domain")
         if SCALED_ASSET.match(domain) or match.group("tld").casefold() in FILE_SUFFIXES:
             continue
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        if SSH_TARGET.search(text[line_start : match.start()]):
+            continue
         if not email_allowed(match.group(0)):
             lines.add(line_at(text, match.start()))
     return sorted(lines)
 
 
+def email_allowed(address: str) -> bool:
+    folded = address.casefold()
+    local, domain = folded.rsplit("@", 1)
+    labels = domain.split(".")
+    return (
+        folded in SERVICE_ADDRESSES
+        or domain in NOREPLY_DOMAINS
+        # An SSH remote such as git@<host>:owner/repo.git names no person.
+        or (local == "git" and domain in GIT_HOSTS)
+        or labels[-1] in RESERVED_TLDS
+        or any(label in INTERNAL_LABELS for label in labels)
+        or any(domain == allowed or domain.endswith("." + allowed) for allowed in ALLOWED_EMAIL_DOMAINS)
+    )
+
+
 def grant_hits(text: str) -> list[tuple[int, int, str]]:
-    """Grant phrases as (first line, last line, phrases), merging adjacent ones."""
+    """Self-granting phrases as (first line, last line, phrases), merging adjacent ones."""
     spans: list[list[object]] = []
     for match in GRANT_FORM.finditer(text):
         line_start = text.rfind("\n", 0, match.start()) + 1
         line_end = text.find("\n", match.start())
         line = text[line_start : line_end if line_end >= 0 else len(text)]
-        if STANDING_FIELD.match(line) or negated(text, match.start()):
+        if line.strip() == STANDING_FIELD:
+            continue
+        after, mark = sentence_after(text, match.end())
+        if mark == "?" and not re.search(r"[;:]", after):
+            continue
+        if context_exempts(clause_before(text, match.start()), after):
+            continue
+        opening = quote_opening(line, match.start() - line_start, match.end() - line_start)
+        if opening is not None and context_exempts(clause_before(text, line_start + opening), ""):
             continue
         phrase = " ".join(match.group(0).split())
         if spans and not text[spans[-1][1] : match.start()].strip():
@@ -597,51 +747,59 @@ def grant_hits(text: str) -> list[tuple[int, int, str]]:
     return [(line_at(text, start), line_at(text, end - 1), phrase) for start, end, phrase in spans]
 
 
-def email_allowed(address: str) -> bool:
-    folded = address.casefold()
-    domain = folded.rsplit("@", 1)[1]
-    return (
-        "noreply" in folded
-        or "no-reply" in folded
-        # An SSH remote such as git@<host>:owner/repo.git names no person.
-        or folded.startswith("git@")
-        or any(domain == allowed or domain.endswith("." + allowed) for allowed in ALLOWED_EMAIL_DOMAINS)
-    )
+def vault_lines(text: str) -> list[int]:
+    """Lines naming a vault folder: any strong marker, or two kinds of weak ones."""
+    strong = [match.start() for match in STRONG_VAULT.finditer(text)]
+    weak = list(WEAK_VAULT.finditer(text))
+    if not strong and len({match.group("kind").casefold() for match in weak}) < 2:
+        return []
+    return sorted({line_at(text, offset) for offset in strong + [match.start() for match in weak]})
+
+
+def vault_paths(files: list[str]) -> set[str]:
+    """Paths naming a vault folder, judged across the whole inventory."""
+    strong = {path for path in files if STRONG_VAULT.search(normalize(path))}
+    weak = {
+        path: {match.group("kind").casefold() for match in WEAK_VAULT.finditer(normalize(path))}
+        for path in files
+    }
+    weak = {path: kinds for path, kinds in weak.items() if kinds}
+    if strong or len(set().union(*weak.values())) >= 2:
+        return strong | set(weak)
+    return strong
 
 
 def lint_text(path: str, text: str, problems: list[Problem]) -> None:
-    for first, last, phrase in grant_hits(text):
+    plain = normalize(text)
+    words = plain.translate(PROSE_MARKS)
+    for first, last, phrase in grant_hits(words):
         where = f"lines {first}-{last}" if last > first else f"line {first}"
         problems.append(
             Problem("LINT_GRANT_FORM", path, f"reads as a standing permission the text grants itself ({where}: '{phrase}').", first)
         )
-    simple = (
-        ("LINT_AGENT_NICKNAME", NICKNAME, "uses an author-specific delegated-agent nickname"),
-        ("LINT_VAULT_NAME", VAULT_NAME, "names a private vault folder"),
-    )
-    for code, pattern, message in simple:
-        lines = sorted({line_at(text, match.start()) for match in pattern.finditer(text)})
-        for line in lines:
-            problems.append(Problem(code, path, f"{message}.", line))
-    for line in user_path_lines(text):
+    for line in sorted({line_at(words, match.start()) for match in NICKNAME.finditer(words)}):
+        problems.append(Problem("LINT_AGENT_NICKNAME", path, "uses an author-specific delegated-agent nickname.", line))
+    for line in vault_lines(plain):
+        problems.append(Problem("LINT_VAULT_NAME", path, "names a private vault folder.", line))
+    for line in user_path_lines(plain):
         problems.append(Problem("LINT_USER_PATH", path, "contains an absolute user path.", line))
-    for line in email_lines(text):
+    for line in email_lines(plain):
         problems.append(Problem("LINT_PERSONAL_EMAIL", path, "contains a personal email address.", line))
 
 
 def lint_files(root: Path, files: list[str], problems: list[Problem]) -> None:
     """The neutrality lint: findings for text that ties the suite to one author."""
+    vault = vault_paths(files)
     for path in files:
-        if fnmatch.fnmatchcase(PurePosixPath(path).name.casefold(), LEDGER_FILE):
+        plain = normalize(path)
+        if fnmatch.fnmatchcase(PurePosixPath(plain).name.casefold(), LEDGER_FILE):
             problems.append(Problem("LINT_CONTINUITY_LEDGER", path, "is a continuity ledger; never commit one."))
-        if user_path_lines(path):
+        if user_path_lines(plain):
             problems.append(Problem("LINT_USER_PATH", path, "the path contains an absolute user path."))
-        for code, pattern, message in (
-            ("LINT_VAULT_NAME", VAULT_NAME, "the path names a private vault folder."),
-            ("LINT_AGENT_NICKNAME", NICKNAME, "the path uses an author-specific nickname."),
-        ):
-            if pattern.search(path):
-                problems.append(Problem(code, path, message))
+        if path in vault:
+            problems.append(Problem("LINT_VAULT_NAME", path, "the path names a private vault folder."))
+        if NICKNAME.search(plain.translate(PROSE_MARKS)):
+            problems.append(Problem("LINT_AGENT_NICKNAME", path, "the path uses an author-specific nickname."))
         full = root / path
         if full.is_symlink() and not full.is_file():
             continue
