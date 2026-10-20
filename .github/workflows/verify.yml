@@ -95,7 +95,3 @@ jobs:
         run: >-
           python -B -X warn_default_encoding -W error::EncodingWarning
           tests/frontmatter/test_differential.py
-
-      - name: Run the PowerShell package verifier
-        if: runner.os == 'Windows'
-        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File verify-package.ps1

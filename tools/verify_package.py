@@ -32,8 +32,7 @@ TOOLS = Path(__file__).resolve().parent
 ROOT = TOOLS.parent
 SCHEMA_PATH = TOOLS / "lib" / "skill_frontmatter.py"
 
-# Built from fragments exactly as verify-package.ps1 builds it, so this file
-# never contains the term it forbids.
+# Built from fragments, so this file never contains the term it forbids.
 FORBIDDEN = re.compile(
     "(?i)"
     + ("office" + r"\s*" + "wars")
