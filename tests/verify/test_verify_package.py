@@ -224,6 +224,8 @@ class FilesystemInventoryTest(unittest.TestCase):
                 ("EXPLICIT_ONLY_MISSING", "skills/game-full-verification"),
                 ("EXPLICIT_ONLY_MISSING", "skills/game-qa-cleanup"),
                 ("EXPLICIT_ONLY_MISSING", "skills/game-release"),
+                # So did the skill pages that README.md links to.
+                ("LINK_MISSING", "README.md"),
             },
         )
 
@@ -522,6 +524,150 @@ class ManifestTest(unittest.TestCase):
         returncode, payload = run_verifier(self.root)
         self.assertEqual(returncode, 1)
         self.assertEqual(manifest_problems(payload), {("MANIFEST_AGENTS_FOLDER", "agents/reviewer.md")})
+
+
+def problem_lines(payload: dict, prefix: str) -> list[tuple[str, str, int | None, str]]:
+    return sorted(
+        (item["code"], item["path"], item["line"], item["message"])
+        for item in payload["problems"]
+        if item["code"].startswith(prefix)
+    )
+
+
+class VersionTest(unittest.TestCase):
+    """VERSION, both plugin manifests, and the newest CHANGELOG entry agree."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="verify-version-")
+        self.root = copy_package(Path(self.temp.name) / "package")
+        self.version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def changelog(self, old: str, new: str) -> None:
+        path = self.root / "CHANGELOG.md"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        path.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+
+    def test_the_package_versions_agree(self) -> None:
+        returncode, payload = run_verifier(self.root, "--metadata")
+        self.assertEqual((returncode, payload["problems"]), (0, []))
+        self.assertEqual(payload["version"], self.version)
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(payload["version"], self.version)
+
+    def test_a_manifest_that_disagrees(self) -> None:
+        edit_json(self.root, ".claude-plugin/plugin.json", lambda value: value.update(version="1.0.9"))
+        edit_json(self.root, "plugin.json", lambda value: value.pop("version"))
+        returncode, payload = run_verifier(self.root, "--metadata")
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            problem_lines(payload, "VERSION_"),
+            [
+                ("VERSION_MISMATCH", ".claude-plugin/plugin.json", None,
+                 f"version is '1.0.9', but VERSION says '{self.version}'."),
+                ("VERSION_MISMATCH", "plugin.json", None, f"version is None, but VERSION says '{self.version}'."),
+            ],
+        )
+
+    def test_the_newest_changelog_entry_must_match(self) -> None:
+        heading = next(
+            line for line in (self.root / "CHANGELOG.md").read_text(encoding="utf-8").split("\n")
+            if line.startswith(f"## [{self.version}]")
+        )
+        self.changelog(heading, "## [Unreleased]\n\n" + heading)
+        returncode, payload = run_verifier(self.root, "--metadata")
+        self.assertEqual((returncode, payload["problems"]), (0, []), "an Unreleased section is skipped")
+        self.changelog(heading, "## [9.9.9] - 2099-01-01\n\n" + heading)
+        returncode, payload = run_verifier(self.root, "--metadata")
+        [problem] = problem_lines(payload, "VERSION_")
+        self.assertEqual(problem[:2], ("VERSION_MISMATCH", "CHANGELOG.md"))
+        self.assertIn("'## [9.9.9] - 2099-01-01'", problem[3])
+
+    def test_a_release_entry_needs_a_date(self) -> None:
+        self.changelog(f"## [{self.version}] - ", f"## [{self.version}]\n\nDated ")
+        returncode, payload = run_verifier(self.root, "--metadata")
+        self.assertEqual([item[:2] for item in problem_lines(payload, "VERSION_")], [("VERSION_MISMATCH", "CHANGELOG.md")])
+
+    def test_the_version_file_holds_one_version(self) -> None:
+        for content in (f"v{self.version}\n", self.version, f"{self.version}\n\n", "1.1\n"):
+            with self.subTest(content=content):
+                (self.root / "VERSION").write_bytes(content.encode("utf-8"))
+                returncode, payload = run_verifier(self.root, "--metadata")
+                self.assertEqual(returncode, 1)
+                self.assertEqual([item[:2] for item in problem_lines(payload, "VERSION_")], [("VERSION_FORMAT", "VERSION")])
+
+    def test_missing_version_files(self) -> None:
+        (self.root / "CHANGELOG.md").unlink()
+        returncode, payload = run_verifier(self.root, "--metadata")
+        self.assertEqual([item[:2] for item in problem_lines(payload, "VERSION_")], [("VERSION_MISSING", "CHANGELOG.md")])
+        (self.root / "VERSION").unlink()
+        returncode, payload = run_verifier(self.root, "--metadata")
+        self.assertEqual([item[:2] for item in problem_lines(payload, "VERSION_")], [("VERSION_MISSING", "VERSION")])
+
+
+# Planted README lines: (text, expected problem code or None for a clean line).
+PLANTED_LINKS = [
+    ("[gone](docs/GONE.md)", "LINK_MISSING"),
+    ("![art](.github/assets/missing.svg)", "LINK_MISSING"),
+    ('<p><img src="missing.png" alt=""></p>', "LINK_MISSING"),
+    ("[no heading](#no-such-heading)", "LINK_ANCHOR"),
+    ("[no section](docs/COMPATIBILITY.md#no-such-section)", "LINK_ANCHOR"),
+    ("[outside](../outside.md)", "LINK_MISSING"),
+    ("[ref]: docs/NOPE.md", "LINK_MISSING"),
+    ("[folder](skills/) and [heading](#install) and [encoded](docs/COMPATIBILITY.md#known-limits)", None),
+    ("[site](https://example.com/x.md) and <a href=\"mailto:probe@example.com\">mail</a>", None),
+    ("Inline code is not a link: `[x](docs/GONE.md)`.", None),
+]
+
+
+class LinkTest(unittest.TestCase):
+    """Relative links and images resolve, and fragments name a heading or anchor."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="verify-links-")
+        self.root = copy_package(Path(self.temp.name) / "package")
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_the_package_links_resolve(self) -> None:
+        returncode, payload = run_verifier(self.root, "--metadata")
+        self.assertEqual((returncode, payload["problems"]), (0, []))
+        self.assertGreater(payload["links_checked"], 20)
+
+    def test_planted_links(self) -> None:
+        readme = self.root / "README.md"
+        text = readme.read_text(encoding="utf-8")
+        start = text.count("\n") + 1
+        planted = "\n".join(line for line, _ in PLANTED_LINKS)
+        fenced = "\n```text\n[fenced](docs/GONE.md)\n```\n"
+        readme.write_text(text + planted + "\n" + fenced, encoding="utf-8", newline="\n")
+        returncode, payload = run_verifier(self.root, "--metadata")
+        self.assertEqual(returncode, 1)
+        expected = [
+            (code, "README.md", start + index)
+            for index, (_, code) in enumerate(PLANTED_LINKS)
+            if code is not None
+        ]
+        self.assertEqual(sorted(item[:3] for item in problem_lines(payload, "LINK_")), sorted(expected))
+
+    def test_docs_links_and_duplicate_headings(self) -> None:
+        doc = self.root / "docs" / "planted.md"
+        doc.write_text(
+            "# Planted\n\n## Same\n\n## Same\n\n"
+            "[first](#same) [second](#same-1) [third](#same-2)\n"
+            "[schema](SKILL_SCHEMA.md#keys) [up](../MISSING.md) [readme](../README.md#validation)\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        returncode, payload = run_verifier(self.root, "--metadata")
+        self.assertEqual(
+            [item[:3] for item in problem_lines(payload, "LINK_")],
+            [("LINK_ANCHOR", "docs/planted.md", 7), ("LINK_MISSING", "docs/planted.md", 8)],
+        )
 
 
 def set_description(root: Path, name: str, description: str) -> None:

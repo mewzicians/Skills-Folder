@@ -52,10 +52,12 @@ version.
   problem in one run: skill structure, portable frontmatter, the text policy,
   private project names, generated debris, dangling symbolic links, generated-copy and
   identical-file drift, the explicit-only policy and wording, the plugin
-  manifests, description and body budgets, and a neutrality lint (also
-  `--lint`) for self-granted permissions, author-specific names, personal
-  paths and addresses, private vault names, and committed continuity
-  ledgers.
+  manifests, one version across `VERSION`, both manifests, and the newest
+  changelog entry, relative links and images in the README, changelog, and
+  `docs/` (also `--metadata`), description and body budgets, and a
+  neutrality lint (also `--lint`) for self-granted permissions,
+  author-specific names, personal paths and addresses, private vault names,
+  and committed continuity ledgers.
 - `tools/validate_skill.py` and `tools/lib/skill_frontmatter.py`, a
   standard-library frontmatter validator with portable and spec levels and a
   generated test corpus.

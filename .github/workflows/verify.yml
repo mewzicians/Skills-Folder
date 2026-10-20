@@ -52,6 +52,13 @@ jobs:
       - name: Verify package
         run: python -B -X warn_default_encoding -W error::EncodingWarning tools/verify_package.py --budgets
 
+      # The same checks the package step makes, reported on their own: the
+      # plugin manifests, one version in VERSION, both manifests, and the
+      # newest CHANGELOG entry, and every relative link and image path in
+      # README.md, CHANGELOG.md, and docs/*.md.
+      - name: Check plugin manifests, version, and links
+        run: python -B -X warn_default_encoding -W error::EncodingWarning tools/verify_package.py --metadata
+
       - name: Validate portable frontmatter
         run: >-
           python -B -X warn_default_encoding -W error::EncodingWarning

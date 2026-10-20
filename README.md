@@ -288,21 +288,25 @@ The badge at the top shows the latest result.
 1. **Verify package:** `tools/verify_package.py --budgets` checks skill
    structure, portable frontmatter, UTF-8 and LF text, generated debris,
    private project names, generated-copy and identical-file drift, the
-   explicit-only skills' policy and wording, the plugin manifests, the
-   description and body budgets, and a neutrality lint
-   for self-granted permissions, author-specific names, personal paths and
-   addresses, private vault names, and committed continuity ledgers.
-2. **Validate portable frontmatter:** `tools/validate_skill.py` on every
+   explicit-only skills' policy and wording, the plugin manifests, one
+   version across `VERSION`, both manifests, and the newest changelog entry,
+   the relative links and images in the README, changelog, and `docs/`, the
+   description and body budgets, and a neutrality lint for self-granted
+   permissions, author-specific names, personal paths and addresses, private
+   vault names, and committed continuity ledgers.
+2. **Check plugin manifests, version, and links:** the same manifest,
+   version, and link checks, reported on their own with `--metadata`.
+3. **Validate portable frontmatter:** `tools/validate_skill.py` on every
    skill.
-3. **Run the strict static auditor on every skill.**
-4. **Run tool tests:** the frontmatter, package-verifier, skill-script, and
+4. **Run the strict static auditor on every skill.**
+5. **Run tool tests:** the frontmatter, package-verifier, skill-script, and
    archive-builder tests.
-5. **Run the installer tests in temporary homes:** every target, decision,
+6. **Run the installer tests in temporary homes:** every target, decision,
    refusal, rollback, backup, and uninstall, with a socket guard, failing if
    the runner's real skill folders change.
-6. **Run the continuity self-test.**
-7. **Run the auditor adversarial self-test.**
-8. **Compare the frontmatter schema with PyYAML,** pinned by hash.
+7. **Run the continuity self-test.**
+8. **Run the auditor adversarial self-test.**
+9. **Compare the frontmatter schema with PyYAML,** pinned by hash.
 
 The workflow checks files and scripts. It does not start Codex or Claude
 Code, install the plugin, or run any model.
@@ -316,6 +320,7 @@ library.
 ```text
 python -B tools/verify_package.py --budgets
 python -B tools/verify_package.py --lint
+python -B tools/verify_package.py --metadata
 python -B tools/validate_skill.py
 python -B skills/game-skill-auditor/scripts/audit_skill.py skills/game-plan --json --strict
 python -B tests/frontmatter/test_frontmatter.py

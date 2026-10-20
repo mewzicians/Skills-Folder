@@ -6,13 +6,16 @@ tracked-text policy, public-term hygiene, generated debris inside skills,
 symbolic links that do not resolve to a file, intentionally duplicated files,
 which must stay byte-for-byte equal and present in every skill not exempt
 from carrying one, the explicit-only skills' invocation policy and wording,
-the root plugin's manifests and marketplaces, the description and body
-budgets, and the neutrality lint, which reports text that ties the suite to
-one author or machine. Inside a git checkout the inventory comes from git, so
+the root plugin's manifests and marketplaces, one suite version across
+VERSION, both manifests, and the newest CHANGELOG entry, the relative links
+and images in README.md, CHANGELOG.md, and docs/*.md, the description and
+body budgets, and the neutrality lint, which reports text that ties the
+suite to one author or machine. Inside a git checkout the inventory comes from git, so
 git-ignored files are skipped; elsewhere, such as an extracted archive, every
 file is checked.
 
---lint runs only the neutrality lint, the same checks the default run makes.
+--lint runs only the neutrality lint, and --metadata only the manifest,
+version, and link checks; the default run makes both.
 
 Exit codes: 0 pass, 1 problems found, 2 usage error, 3 internal error.
 Standard library only.
@@ -29,6 +32,7 @@ import fnmatch
 import importlib.util
 import json
 import os
+import posixpath
 import re
 import subprocess
 import unicodedata
@@ -36,6 +40,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import ModuleType
+from urllib.parse import unquote
 
 TOOLS = Path(__file__).resolve().parent
 ROOT = TOOLS.parent
@@ -261,6 +266,27 @@ KEBAB_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 RESERVED_PREFIXES = ("claude-", "anthropic-", "anthropics-", "cc-plugin-")
 RESERVED_NAMES = {"claude", "anthropic", "claude-code", "claude-mods", "agent-skills"}
 SUITE_LICENSE = "Apache-2.0"
+
+# One version for the suite: the root VERSION file, both plugin manifests, and
+# the newest released CHANGELOG entry ("## [1.1.0] - 2026-10-20") must agree.
+VERSION_FILE = "VERSION"
+CHANGELOG = "CHANGELOG.md"
+SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+RELEASE_HEADING = re.compile(r"^## \[(?P<version>[^\]]+)\](?: - (?P<date>\d{4}-\d{2}-\d{2}))?\s*$")
+
+# Relative links and image paths in these Markdown files must resolve inside
+# the repository, and a #fragment must name a heading or an explicit anchor
+# there. Text inside code fences and inline code is not a link.
+LINKED_DOCUMENTS = ("README.md", "CHANGELOG.md", "docs/*.md")
+FENCE = re.compile(r"^\s{0,3}(```|~~~)")
+MD_HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(?P<title>.*?)(?:\s+#+)?\s*$")
+HTML_HEADING = re.compile(r"<h[1-6]\b[^>]*>(?P<title>.*?)</h[1-6]>", re.IGNORECASE)
+HTML_ANCHOR = re.compile(r"<a\s[^>]*\b(?:id|name)=\"(?P<anchor>[^\"]+)\"", re.IGNORECASE)
+MD_LINK = re.compile(r"!?\[(?:[^\[\]]|\[[^\]]*\])*\]\(\s*<?(?P<target>[^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+HTML_LINK = re.compile(r"\b(?:href|src)=\"(?P<target>[^\"]+)\"", re.IGNORECASE)
+REFERENCE_LINK = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(?P<target>\S+?)>?(?:\s|$)")
+INLINE_CODE = re.compile(r"(`+)(?:(?!\1).)+?\1")
+URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
 @dataclass(frozen=True)
 class Problem:
@@ -789,6 +815,124 @@ def check_manifests(root: Path, files: set[str], problems: list[Problem]) -> dic
     return loaded
 
 
+def check_version(root: Path, files: set[str], manifests: dict[str, dict], problems: list[Problem]) -> str | None:
+    """VERSION, both plugin manifests, and the newest CHANGELOG release name one version."""
+    if VERSION_FILE not in files:
+        problems.append(Problem("VERSION_MISSING", VERSION_FILE, "is missing; it holds the suite version."))
+        return None
+    raw = (root / VERSION_FILE).read_bytes().decode("utf-8", "replace")
+    version = raw.strip()
+    if raw != version + "\n" or not SEMVER.match(version):
+        problems.append(
+            Problem("VERSION_FORMAT", VERSION_FILE, "must hold one version such as 1.1.0 and a final newline, nothing else.")
+        )
+        return None
+    for path in (CLAUDE_MANIFEST, PORTABLE_MANIFEST):
+        manifest = manifests.get(path)
+        if manifest is not None and manifest.get("version") != version:
+            problems.append(
+                Problem(
+                    "VERSION_MISMATCH",
+                    path,
+                    f"version is {manifest.get('version')!r}, but {VERSION_FILE} says {version!r}.",
+                )
+            )
+    if CHANGELOG not in files:
+        problems.append(Problem("VERSION_MISSING", CHANGELOG, f"is missing; its newest entry must be {version}."))
+        return version
+    lines = (root / CHANGELOG).read_bytes().decode("utf-8", "replace").split("\n")
+    for number, line in enumerate(lines, 1):
+        match = RELEASE_HEADING.match(line)
+        if match is None or match.group("version").casefold() == "unreleased":
+            continue
+        if match.group("version") != version or match.group("date") is None:
+            problems.append(
+                Problem(
+                    "VERSION_MISMATCH",
+                    CHANGELOG,
+                    f"the newest entry must be '## [{version}] - YYYY-MM-DD', not {line.strip()!r}.",
+                    number,
+                )
+            )
+        break
+    else:
+        problems.append(Problem("VERSION_MISMATCH", CHANGELOG, f"has no release entry; add '## [{version}] - YYYY-MM-DD'."))
+    return version
+
+
+def github_anchor(title: str) -> str:
+    """The id GitHub gives a heading: lowercase, punctuation dropped, spaces as hyphens."""
+    title = re.sub(r"<[^>]+>", "", title)
+    title = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", title)
+    return re.sub(r"[^\w\- ]", "", title.strip().lower()).replace(" ", "-")
+
+
+def markdown_lines(text: str):
+    """(line number, line) outside code fences, with inline code removed."""
+    fenced = False
+    for number, line in enumerate(text.split("\n"), 1):
+        if FENCE.match(line):
+            fenced = not fenced
+            continue
+        if not fenced:
+            yield number, INLINE_CODE.sub("", line)
+
+
+def anchors_in(text: str) -> set[str]:
+    found: set[str] = set()
+    seen: Counter[str] = Counter()
+    for _, line in markdown_lines(text):
+        found.update(match.group("anchor") for match in HTML_ANCHOR.finditer(line))
+        heading = MD_HEADING.match(line)
+        titles = [heading.group("title")] if heading else [match.group("title") for match in HTML_HEADING.finditer(line)]
+        for title in titles:
+            anchor = github_anchor(title)
+            found.add(anchor if seen[anchor] == 0 else f"{anchor}-{seen[anchor]}")
+            seen[anchor] += 1
+    return found
+
+
+def link_targets(text: str):
+    for number, line in markdown_lines(text):
+        for pattern in (MD_LINK, HTML_LINK, REFERENCE_LINK):
+            for match in pattern.finditer(line):
+                yield number, match.group("target")
+
+
+def check_links(root: Path, files: set[str], problems: list[Problem]) -> int:
+    """Relative links and images in the linked documents resolve; return how many were checked."""
+    folders = {str(parent) for path in files for parent in PurePosixPath(path).parents if str(parent) != "."}
+    documents = sorted(path for path in files if any(matches_parts(path, pattern) for pattern in LINKED_DOCUMENTS))
+    texts = {path: (root / path).read_bytes().decode("utf-8", "replace") for path in documents}
+    anchors: dict[str, set[str]] = {}
+    checked = 0
+    for document in documents:
+        base = PurePosixPath(document).parent
+        for number, target in link_targets(texts[document]):
+            if URL_SCHEME.match(target) or target.startswith("//"):
+                continue
+            checked += 1
+            path, _, fragment = target.partition("#")
+            path = unquote(path.split("?", 1)[0])
+            if not path:
+                resolved = document
+            else:
+                joined = posixpath.normpath(path.lstrip("/") if path.startswith("/") else str(base / path))
+                if joined == ".." or joined.startswith("../"):
+                    problems.append(Problem("LINK_MISSING", document, f"{target} points outside the repository.", number))
+                    continue
+                resolved = "." if joined == "." else joined
+                if resolved not in files and resolved not in folders and resolved != ".":
+                    problems.append(Problem("LINK_MISSING", document, f"{target} does not resolve to a file or folder.", number))
+                    continue
+            if fragment and resolved.endswith(".md") and resolved in files:
+                if resolved not in anchors:
+                    anchors[resolved] = anchors_in(texts.get(resolved) or (root / resolved).read_bytes().decode("utf-8", "replace"))
+                if unquote(fragment) not in anchors[resolved]:
+                    problems.append(Problem("LINK_ANCHOR", document, f"{target} names no heading or anchor in {resolved}.", number))
+    return checked
+
+
 def line_at(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
@@ -997,6 +1141,27 @@ def lint(root: Path) -> tuple[list[Problem], dict[str, object]]:
     return problems, summary
 
 
+def release_metadata(root: Path, files: set[str], problems: list[Problem]) -> dict[str, object]:
+    """The plugin manifests, the one suite version, and the documents' relative links."""
+    manifests = check_manifests(root, files, problems)
+    version = check_version(root, files, manifests, problems)
+    links = check_links(root, files, problems)
+    return {"version": version, "links_checked": links}
+
+
+def metadata(root: Path) -> tuple[list[Problem], dict[str, object]]:
+    """Only the manifest, version, and link checks, for --metadata."""
+    files = git_inventory(root)
+    mode = "git"
+    if files is None:
+        files, mode = walk_inventory(root), "filesystem"
+    problems: list[Problem] = []
+    broken = {path for path in files if (root / path).is_symlink() and not (root / path).is_file()}
+    details = release_metadata(root, set(files) - broken, problems)
+    summary = {"root": str(root), "inventory": mode, "files": len(files), "mode": "metadata", **details}
+    return problems, summary
+
+
 def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
     schema = load_schema()
     files = git_inventory(root)
@@ -1026,7 +1191,7 @@ def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
     check_copies(root, fileset, problems)
     check_identical(root, fileset, skills, problems)
     check_explicit_only(root, fileset, schema, problems)
-    check_manifests(root, fileset, problems)
+    details = release_metadata(root, fileset, problems)
     budgets = check_budgets(root, skills, fileset, schema, problems)
     for path in files:
         if is_debris(path):
@@ -1038,7 +1203,14 @@ def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
         if not is_binary(path, data):
             check_text(path, data, problems)
     lint_files(root, files, problems)
-    summary = {"root": str(root), "inventory": mode, "files": len(files), "skills": skills, "budgets": budgets}
+    summary = {
+        "root": str(root),
+        "inventory": mode,
+        "files": len(files),
+        "skills": skills,
+        "budgets": budgets,
+        **details,
+    }
     return problems, summary
 
 
@@ -1057,6 +1229,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--metadata",
+        action="store_true",
+        help=(
+            "run only the release metadata checks, which the default run also makes: the plugin manifests, "
+            "one version in VERSION, both manifests, and the newest CHANGELOG entry, and the relative links "
+            "and images in README.md, CHANGELOG.md, and docs/*.md"
+        ),
+    )
+    parser.add_argument(
         "--budgets",
         action="store_true",
         help="also print each skill's description length and estimated body tokens against its cap",
@@ -1065,13 +1246,15 @@ def main(argv: list[str] | None = None) -> int:
     root = args.root.resolve()
     if not root.is_dir():
         parser.error(f"--root is not a directory: {root}")
-    problems, summary = lint(root) if args.lint else verify(root)
+    if args.lint and args.metadata:
+        parser.error("--lint and --metadata each run one part of the default run; pick one")
+    problems, summary = lint(root) if args.lint else metadata(root) if args.metadata else verify(root)
     if args.as_json:
         print(json.dumps({**summary, "problems": [item.as_dict() for item in problems]}, indent=2))
     else:
         for problem in problems:
             print(problem.render())
-        if not args.lint:
+        if not args.lint and not args.metadata:
             budgets = summary["budgets"]
             if args.budgets:
                 for line in render_budgets(budgets):
@@ -1082,11 +1265,15 @@ def main(argv: list[str] | None = None) -> int:
                 "--budgets lists every skill."
             )
         verdict = "FAIL" if problems else "PASS"
-        scope = (
-            "neutrality lint"
-            if args.lint
-            else f"{len(summary['skills'])} skills, plugin manifests, budgets, and neutrality lint"
-        )
+        if args.lint:
+            scope = "neutrality lint"
+        elif args.metadata:
+            scope = f"plugin manifests, version {summary['version']}, and {summary['links_checked']} relative links"
+        else:
+            scope = (
+                f"{len(summary['skills'])} skills, plugin manifests, version, relative links, budgets, "
+                "and neutrality lint"
+            )
         print(
             f"{verdict}: {len(problems)} problem(s); {scope}; "
             f"{summary['files']} files checked (inventory: {summary['inventory']})."
