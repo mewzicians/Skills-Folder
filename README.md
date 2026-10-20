@@ -6,7 +6,7 @@ Reusable Codex workflows for designing, building, testing, balancing,
 documenting, composing for, and releasing games.
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-0B7285.svg)](LICENSE)
-![Skills](https://img.shields.io/badge/skills-14-2F9E44.svg)
+![Skills](https://img.shields.io/badge/skills-12-2F9E44.svg)
 ![Validation](https://img.shields.io/badge/validation-passing-2F9E44.svg)
 
 </div>
@@ -31,7 +31,7 @@ tests, mirrors, constraints, and release gates.
 | Player experience | `game-ux-audit`, `music-composer` |
 | Quality | `game-qa-cleanup`, `game-full-verification` |
 | Release | `game-github-package` |
-| Agent tooling | `game-context-continuity`, `game-skill-auditor`, `game-skill-creator`, `game-skill-installer` |
+| Agent tooling | `game-context-continuity`, `game-skill-auditor` |
 
 ## Quick Start
 
@@ -65,6 +65,9 @@ project-neutral terms, not a complete package validation.
 
 This structure makes it easy to create a focused skill suite for one game
 without contaminating the reusable source skills.
+[docs/SPECIALIZE.md](docs/SPECIALIZE.md) explains when a specialized skill is
+worth writing, how to write one with your agent host's own skill-creator, and
+why volatile project status never belongs in it.
 
 ## Design Principles
 
@@ -99,7 +102,7 @@ skills/                    Installable skill folders
 templates/                 Project-specialization profile
 tools/                     Package verifier and frontmatter validator
 tests/                     Tests for the tools
-docs/                      SKILL.md frontmatter schema
+docs/                      Frontmatter schema and specialization guide
 install-skills.ps1         Backup-preserving suite installer
 verify-package.ps1         Quick PowerShell structure check
 ```

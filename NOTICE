@@ -1,6 +1,7 @@
 Skills for Agent Game Development
 Copyright 2026 mewzicians
 
-This product includes material adapted from OpenAI Codex system skills.
-The game-skill-creator and game-skill-installer directories retain their
-included Apache License, Version 2.0 files and identify modified materials.
+Versions 1.0.x included material adapted from OpenAI Codex system skills
+(Copyright 2025 OpenAI, licensed under the Apache License, Version 2.0) in the
+game-skill-creator and game-skill-installer directories. Version 1.1 and later
+include none of that material.

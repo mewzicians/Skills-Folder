@@ -171,7 +171,7 @@ def pyyaml_load(document: str) -> tuple[str, object]:
 
 
 def codex_accepts(document: str, frontmatter: dict) -> str | None:
-    """The rules of Codex's current quick_validate.py after a clean load."""
+    """The rules of Codex's current skill-creator validator after a clean load."""
     allowed = {"name", "description", "license", "allowed-tools", "metadata"}
     if set(frontmatter) - allowed:
         return "unexpected key"
