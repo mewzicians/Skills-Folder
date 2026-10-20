@@ -1207,12 +1207,14 @@ def journal_problems(journal: dict, state: Path) -> list[str]:
         problems.append(f"its ledger {journal.get('ledger')!r} is not {state / LEDGER_NAME}")
     if not isinstance(journal.get("ledger_before"), (str, type(None))):
         problems.append("its copy of the earlier ledger is not text")
-    created = journal.get("created", [])
-    for folder in created if isinstance(created, list) else [created]:
+    created, renames = journal.get("created", []), journal.get("renames")
+    if not isinstance(created, list) or not isinstance(renames, list):
+        problems.append("its lists of created folders and moves are not lists")
+        return problems
+    for folder in created:
         if not any(same_text(folder, parent) for parent in (root, *root.parents)):
             problems.append(f"it lists {folder!r} as a folder it created, which is neither {root} nor above it")
-    renames = journal.get("renames")
-    for step in renames if isinstance(renames, list) else [renames]:
+    for step in renames:
         source = step.get("from") if isinstance(step, dict) else None
         destination = step.get("to") if isinstance(step, dict) else None
         name = Path(destination).name if isinstance(destination, str) else None

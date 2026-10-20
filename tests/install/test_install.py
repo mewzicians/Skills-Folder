@@ -985,6 +985,8 @@ class LedgerAndJournalSafetyTest(HomesTestCase):
             "stage": {"stage": str(victim)},
             "ledger": {"ledger": str(victim / "data.txt"), "ledger_written": True, "ledger_before": "Replaced.\n"},
             "created folder": {"created": [str(victim)]},
+            "created folders as text": {"created": str(root)},
+            "moves as text": {"renames": str(victim)},
             "move from outside": {"renames": [{"from": str(victim), "to": str(stage / "old" / "victim")}]},
             "move to outside": {"renames": [{"from": str(stage / "new" / "game-plan"), "to": str(victim)}]},
             "traversal": {
@@ -1002,7 +1004,8 @@ class LedgerAndJournalSafetyTest(HomesTestCase):
                 write_journal(self.homes, dict(base, **values))
                 code, payload, err = run_cli(self.homes, "install", "--yes")
                 self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
-                self.assertIn("was not acted on", payload["error"])
+                expected = "cannot be read" if label == "moves as text" else "was not acted on"
+                self.assertIn(expected, payload["error"])
                 self.assertVictimsUntouched()
                 self.assertEqual(tree(root), before)
                 self.assertTrue((self.homes.state / "journal.json").exists())
