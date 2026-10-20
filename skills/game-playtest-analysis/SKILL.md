@@ -7,9 +7,20 @@ description: Turn game playtest notes, recordings, saves, screenshots, surveys, 
 
 Read repository guidance and [references/project-profile.md](references/project-profile.md). Identify the exact tested build and current rules; never merge evidence from different builds without labels.
 
-Normalize each session when available: player profile, build/version, platform, inputs, seed/save, choices, resources, progression, session length, failure or success cause, exact quote or observation, and supporting artifact. Keep observation, player explanation, analyst hypothesis, and telemetry separate.
+Normalize each session when available: player profile, build/version, platform, inputs, seed/save, choices, resources, progression, session length, failure or success cause, exact quote or observation, and supporting artifact. Keep observation, player explanation, analyst hypothesis, and telemetry separate. Label agent- or script-played sessions; they are not human evidence. Pseudonymize participants, keep only needed data, and keep participant data out of public files.
 
-Classify findings as `Bug`, `Comprehension`, `Decision quality`, `Balance`, `Pacing`, `Feedback`, `Accessibility`, or `Taste`. Assess frequency, severity, reproducibility, reach, learning effects, telemetry support, confidence, and competing explanations.
+Classify each finding:
+
+- `Bug`: the build contradicts its rules or intent, shown by reproduction or source evidence, not a report alone.
+- `Comprehension`: a player misread a rule, state, or goal.
+- `Decision quality`: choices were automatic, empty, or unreadable.
+- `Balance`: an option, strategy, or curve is too strong or weak.
+- `Pacing`: length or repetition caused fatigue or drop-off.
+- `Feedback`: a result was unclear, late, or missing.
+- `Accessibility`: an input, display, or cognitive barrier blocked play.
+- `Taste`: a preference, not a defect.
+
+Assess frequency, severity, reproducibility, reach, learning effects, telemetry support, confidence, and competing explanations.
 
 Look for decision bottlenecks, automatic choices, unused systems, first irreversible deficits, build availability versus execution, pacing fatigue, tutorial drop-off, feedback delays, and exceptional-mode confusion.
 

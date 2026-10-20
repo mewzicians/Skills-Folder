@@ -23,6 +23,6 @@ Capture the smallest relevant state: version/hash, platform, seed or random stat
 
 ## Prove
 
-Add a focused regression that fails before and passes after. Test the exact reproducer, a neighboring legal state, boundaries, repetition, interruption, restoration, and deterministic variants when relevant. Broaden testing according to blast radius. Report `Pass`, `Fail`, `Not Run`, and `Blocked` honestly.
+Add a focused regression that fails before and passes after. Test the exact reproducer, a neighboring legal state, boundaries, repetition, interruption, restoration, and deterministic variants when relevant. For startup, loading, or audio defects, also test the first load after a fresh reload. Rerun timing-sensitive checks one at a time, because contention can manufacture the failure. Broaden testing according to blast radius. Report `Pass`, `Fail`, `Not Run`, and `Blocked` honestly.
 
-Synchronize affected documentation and release artifacts configured by the project profile. If reproduction remains impossible, do not invent a fix; preserve useful instrumentation and state the missing evidence.
+Synchronize affected documentation and the maintained deliverables the project profile configures; build an archive only when asked. If reproduction remains impossible, do not invent a fix; preserve useful instrumentation and state the missing evidence.

@@ -17,7 +17,9 @@ Verify proportionally across:
 - saves, migrations, checkpoints, refresh, resume, corruption, and incompatibility;
 - UI, viewports, text zoom, keyboard, semantics, contrast, motion, and screenshots;
 - performance, memory, long sessions, cleanup, and platform constraints;
-- mirrors, metadata, hidden files, manifests, packages, launchers, and byte equality;
+- maintained deliverables, metadata, hidden files, manifests, launchers, and byte equality, with on-demand archives checked only when the user asks for one;
 - legal simulation policy and balance evidence, kept distinct from human testing.
+
+Run timing-sensitive browser or audio suites one at a time, because contention can manufacture the failure. When the project defines rigor levels, state the level used and never silently downgrade it. A hash in a historical record describes the bytes of its time and is not drift.
 
 A containing gate fails when a required subrequirement fails. Never repair gameplay during verification-only work. Write a dated current-version report with hashes, matrix, failures, blocked and unrun scope, and ship verdict. Synchronize configured evidence and state the exact next blocker.

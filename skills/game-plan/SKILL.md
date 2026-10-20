@@ -22,12 +22,13 @@ description: Continue game design, systems, progression, economy, content, pacin
 
 ## Preserve Decisions
 
-- Lock only the exact choice the user explicitly approves.
+- Lock only the exact choice the user explicitly approves. Approval is an explicit statement naming the choice; silence, enthusiasm, questions, "continue", or "use your judgment" approve nothing.
 - Leave unanswered questions open and never apply a default silently.
-- Record approved decisions in the configured decision ledger when edits are permitted.
+- Never infer rejection from silence or nonselection, and never quietly revive a rejected idea; reopen it only by proposing it again.
+- Record approved decisions in the configured decision ledger when edits are permitted; otherwise report the exact pending ledger entry.
 - Move only useful superseded reasoning to the configured archive.
 - Do not edit implementation during planning.
 
 ## Stop
 
-Finish when the user has a clear recommendation or decision, exact status is recorded, and implementation work is either explicitly requested or left separate.
+Finish when the user has a clear recommendation or decision, exact status is recorded or reported as a pending update, and implementation work is either explicitly requested or left separate.

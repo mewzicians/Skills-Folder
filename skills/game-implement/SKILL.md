@@ -25,6 +25,6 @@ Reuse existing architecture and data-driven patterns. Make the smallest coherent
 
 ## Validate And Synchronize
 
-Run syntax/static checks, the changed path, neighboring interactions, boundaries, repeated invocation, persistence, deterministic variants, and representative viewports as relevant. Broaden by blast radius. Record exact evidence and never claim an unrun suite passed.
+Run syntax/static checks, the changed path, neighboring interactions, boundaries, repeated invocation, persistence, deterministic variants, and representative viewports as relevant, including the first load after a fresh reload. Broaden by blast radius. Record exact evidence and never claim an unrun suite passed.
 
-Update only affected design, decision, status, handoff, verification, mirror, manifest, and package records. Finish when behavior, player-facing explanations, tests, and configured release copies agree.
+When a rule changes, update every affected description, tooltip, legend, forecast, comment, and help entry in the same change. Update only affected design, decision, status, handoff, verification, mirror, and manifest records; byte-check maintained deliverables, and build an archive only when asked. Finish when behavior, player-facing explanations, tests, and maintained deliverables agree. Before publishing, use `game-release`.
