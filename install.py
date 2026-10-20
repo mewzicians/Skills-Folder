@@ -91,6 +91,9 @@ CODEX_SCAN_DEPTH = 6
 CODEX_SCAN_FOLDERS = 2000
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_REFUSED, EXIT_CANCELLED = 0, 1, 2, 3, 4
+# A Windows reparse tag with this bit set redirects to another name, as a
+# symbolic link or a junction does (the same test as build_repository_zip.py).
+NAME_SURROGATE_TAG = 0x20000000
 CHANGES = ("install", "upgrade", "downgrade", "replace")
 
 
@@ -185,20 +188,34 @@ def named(root: Path, name: str) -> Path:
 
 
 def is_link(path: Path) -> bool:
-    """A symbolic link, or on Windows a junction."""
+    """A symbolic link, or on Windows a junction or another redirecting reparse point.
+
+    The same test as build_repository_zip.py's is_link(): a reparse point
+    whose tag is a name surrogate, or whose tag cannot be read, points
+    somewhere else; other reparse points, such as cloud-storage placeholders,
+    hold the file's own data and are ordinary files.
+    """
     try:
         info = os.lstat(path)
     except OSError:
         return False
     if stat.S_ISLNK(info.st_mode):
         return True
-    tag = getattr(info, "st_reparse_tag", 0)
-    return tag in (getattr(stat, "IO_REPARSE_TAG_SYMLINK", -1), getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", -1))
+    if getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+        tag = getattr(info, "st_reparse_tag", 0)
+        return tag == 0 or bool(tag & NAME_SURROGATE_TAG)
+    isjunction = getattr(os.path, "isjunction", None)
+    return bool(isjunction is not None and isjunction(path))
+
+
+def raise_error(error: OSError) -> None:
+    """os.walk's onerror: an unreadable folder stops the walk instead of being skipped."""
+    raise error
 
 
 def links_inside(root: Path) -> list[str]:
     found = []
-    for directory, folders, files in os.walk(root):
+    for directory, folders, files in os.walk(root, onerror=raise_error):
         for name in sorted(folders + files):
             if is_link(Path(directory) / name):
                 found.append((Path(directory) / name).relative_to(root).as_posix())
@@ -211,8 +228,9 @@ def is_debris(name: str) -> bool:
 
 
 def tree_files(root: Path, include_debris: bool = False) -> list[tuple[str, Path]]:
+    """Every file under root, by relative path; an unreadable folder raises, so no digest or copy omits it."""
     files = []
-    for directory, folders, names in os.walk(root):
+    for directory, folders, names in os.walk(root, onerror=raise_error):
         if not include_debris:
             folders[:] = [name for name in folders if name not in DEBRIS_DIRS]
         relative = Path(directory).relative_to(root)
@@ -241,13 +259,41 @@ def copy_tree(source: Path, destination: Path, include_debris: bool) -> None:
             shutil.copymode(path, target)
 
 
+def is_folder(path: str | Path) -> bool:
+    try:
+        return stat.S_ISDIR(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def open_folders(folder: str | Path) -> None:
+    """Give each folder in a tree owner read, write, and search permission, top down, never following a link."""
+    os.chmod(folder, stat.S_IRWXU)
+    with os.scandir(folder) as entries:
+        inner = [entry.path for entry in entries if entry.is_dir(follow_symlinks=False)]
+    for path in inner:
+        open_folders(path)
+
+
 def remove_tree(path: Path) -> None:
-    """Remove a tree this installer created (a stage or an unused backup copy)."""
+    """Remove a tree this installer created or moved aside: a stage, or an unused backup copy.
+
+    On POSIX every folder first gets owner read, write, and search
+    permission, so a copy holding an unreadable or read-only folder is
+    removed too; a folder never loses its search (execute) bit. Read-only
+    files become writable. Links are removed, never followed.
+    """
 
     def make_writable(function, name, *_):
-        os.chmod(name, stat.S_IWRITE | stat.S_IREAD)
+        parent = os.path.dirname(name)
+        if os.name != "nt" and parent and is_folder(parent):
+            os.chmod(parent, stat.S_IRWXU)
+        if not os.path.islink(name):
+            os.chmod(name, stat.S_IRWXU if is_folder(name) else stat.S_IREAD | stat.S_IWRITE)
         function(name)
 
+    if os.name != "nt" and is_folder(path):
+        open_folders(path)
     if sys.version_info >= (3, 12):
         shutil.rmtree(path, onexc=make_writable)  # novermin: 3.12 renamed onerror, which now warns
     else:
@@ -777,10 +823,13 @@ def inspect_copy(name: str, path: Path, record: dict | None, digest: str | None,
         return Item(name, "absent", "", path, "not installed")
     if is_link(path) or not path.is_dir():
         return Item(name, "link", "", path, "is a link or a file, which this installer never touches")
-    links = links_inside(path)
+    try:
+        links = links_inside(path)
+        current = tree_digest(path)
+    except OSError as error:
+        return Item(name, "unreadable", "", path, f"cannot be read ({error}); fix its permissions first")
     if links:
         return Item(name, "link", "", path, f"holds a link ({links[0]}), which this installer never touches")
-    current = tree_digest(path)
     item = Item(name, "", "", path, "", installed, current)
     if digest is not None and current == digest:
         item.state, item.reason = "current", f"identical to {version}"
@@ -854,7 +903,7 @@ def plan_retired(target: Target, args) -> list[Item]:
         item = inspect_copy(name, target.root / name, None, None, None)
         if item.state == "absent":
             continue
-        if item.state == "link":
+        if item.state in ("link", "unreadable"):
             item.action = "keep"
         elif args.keep_retired:
             item.action, item.reason = "keep", "retired in 1.1.0; kept because of --keep-retired"
@@ -873,7 +922,7 @@ def plan_uninstall(target: Target, state: Path, source: Source, ledger: dict, ar
         item = inspect_copy(name, target.root / name, records.get(name), digests.get(name), source.version)
         if item.state == "absent":
             continue
-        if item.state == "link":
+        if item.state in ("link", "unreadable"):
             item.action = "refuse"
         elif item.state in ("unrecorded", "modified") and not args.include_modified:
             item.action, item.override = "refuse", "--include-modified"
@@ -1214,10 +1263,13 @@ def undo(journal: dict, journal_path: Path, log: list[str]) -> list[str]:
     stage = journal.get("stage")
     if stage and Path(stage).exists():
         old = Path(stage) / "old"
-        if old.exists() and any(old.iterdir()):
-            problems.append(f"kept {stage}, which still holds skills that could not be moved back")
-        else:
-            remove_tree(Path(stage))
+        try:
+            if old.exists() and any(old.iterdir()):
+                problems.append(f"kept {stage}, which still holds skills that could not be moved back")
+            else:
+                remove_tree(Path(stage))
+        except OSError as error:
+            problems.append(f"could not remove {stage}: {error}")
     for folder in reversed(journal.get("created", [])):
         try:
             Path(folder).rmdir()
@@ -1229,7 +1281,10 @@ def undo(journal: dict, journal_path: Path, log: list[str]) -> list[str]:
         if problems:
             problems.append(f"kept the backup {backup}")
         else:
-            remove_tree(Path(backup))
+            try:
+                remove_tree(Path(backup))
+            except OSError as error:
+                problems.append(f"could not remove the unused backup {backup}: {error}")
     if not problems and journal_path.exists():
         journal_path.unlink()
     return problems
@@ -1288,11 +1343,13 @@ def recover(state: Path, args, out: Reporter) -> tuple[int, dict]:
     log: list[str] = []
     try:
         if committed:
-            stage = journal.get("stage")
-            if stage and Path(stage).exists():
-                remove_tree(Path(stage))
-            journal_path.unlink()
-            problems = []
+            stage, problems = journal.get("stage"), []
+            try:
+                if stage and Path(stage).exists():
+                    remove_tree(Path(stage))
+                journal_path.unlink()
+            except OSError as error:
+                problems.append(f"could not finish the cleanup of {stage}: {error}")
         else:
             problems = undo(journal, journal_path, log)
     except KeyboardInterrupt:

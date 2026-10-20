@@ -23,11 +23,13 @@ import json
 import os
 import shutil
 import socket
+import stat
 import subprocess
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1290,6 +1292,139 @@ class ErrorMessageTest(HomesTestCase):
         self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
         self.assertIn("may be holding files in that folder open", err)
         self.assertIsNone(INSTALL.access_hint(OSError("something else")))
+
+
+BUILDER = ROOT / "skills" / "game-release" / "scripts" / "build_repository_zip.py"
+
+
+class LinkTest(unittest.TestCase):
+    """install.py and the archive builder agree on what is a link."""
+
+    def test_is_link_matches_the_archive_builder(self) -> None:
+        spec = importlib.util.spec_from_file_location("build_repository_zip_for_install_tests", BUILDER)
+        builder = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = builder
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(builder)
+        reparse = stat.FILE_ATTRIBUTE_REPARSE_POINT
+        cases = {
+            "symbolic link": (stat.S_IFLNK | 0o777, 0, 0, True),
+            "Windows symbolic link": (stat.S_IFREG | 0o644, reparse, 0xA000000C, True),
+            "junction": (stat.S_IFDIR | 0o755, reparse, 0xA0000003, True),
+            "another name surrogate (WSL link)": (stat.S_IFREG | 0o644, reparse, 0xA000001D, True),
+            "reparse point with no readable tag": (stat.S_IFREG | 0o644, reparse, 0, True),
+            "cloud placeholder, which holds its own data": (stat.S_IFREG | 0o644, reparse, 0x9000001A, False),
+            "plain folder": (stat.S_IFDIR | 0o755, 0, 0, False),
+        }
+        for label, (mode, attributes, tag, expected) in cases.items():
+            with self.subTest(case=label):
+                info = SimpleNamespace(st_mode=mode, st_file_attributes=attributes, st_reparse_tag=tag)
+                with mock.patch.object(os, "lstat", return_value=info), mock.patch.object(
+                    os.path, "isjunction", return_value=False, create=True
+                ):
+                    self.assertEqual(INSTALL.is_link(Path("entry")), expected)
+                    self.assertEqual(builder.is_link(Path("entry")), expected)
+
+
+class UnreadableTest(HomesTestCase):
+    """An unreadable copy is refused by name, and removal problems are reported, never raised."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual(code, 0, err)
+
+    def test_a_walk_error_raises_instead_of_skipping_a_folder(self) -> None:
+        with self.assertRaises(OSError):
+            INSTALL.tree_files(self.homes.root / "missing")
+
+    def test_an_unreadable_copy_is_refused_by_name(self) -> None:
+        real_digest = INSTALL.tree_digest
+        target = self.homes.codex / "game-plan"
+
+        def digest(root, include_debris=False):
+            if INSTALL.same_path(root, target):
+                raise PermissionError(13, "Permission denied", str(target / "references"))
+            return real_digest(root, include_debris)
+
+        with mock.patch.object(INSTALL, "tree_digest", digest):
+            for args, expected in ((("install", "--yes", "--replace-modified"), 3), (("uninstall", "--yes"), 3)):
+                with self.subTest(args=args):
+                    code, payload, err = run_here(self.homes, *args)
+                    self.assertEqual((code, payload["result"]), (expected, "refused"), err)
+                    item = next(entry for entry in payload["plan"] if entry["skill"] == "game-plan")
+                    self.assertEqual((item["state"], item["action"]), ("unreadable", "refuse"))
+                    self.assertIn("cannot be read", item["reason"])
+            code, payload, err = run_here(self.homes, "status", "--target", "codex")
+            self.assertEqual(code, 0, err)
+        self.assertInstalled(self.homes.codex)
+
+    def test_a_cleanup_that_cannot_remove_the_stage_is_reported(self) -> None:
+        def stuck(path):
+            raise PermissionError(13, "Permission denied", str(path))
+
+        write_journal(self.homes, journal_for(self.homes, self.homes.codex, committed=True))
+        Path(journal_for(self.homes, self.homes.codex)["stage"]).mkdir()
+        with mock.patch.object(INSTALL, "remove_tree", stuck):
+            code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "failed"), err)
+        self.assertIn("could not finish the cleanup", " ".join(payload["errors"]))
+        self.assertTrue((self.homes.state / "journal.json").exists())
+        write_journal(self.homes, journal_for(self.homes, self.homes.codex))
+        with mock.patch.object(INSTALL, "remove_tree", stuck):
+            code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "failed"), err)
+        self.assertIn("could not remove", " ".join(payload["errors"]))
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "recovered"), err)
+
+
+POSIX_PERMISSIONS = os.name == "posix" and hasattr(os, "geteuid") and os.geteuid() != 0
+
+
+@unittest.skipUnless(POSIX_PERMISSIONS, "POSIX permissions, as a user other than root")
+class PosixPermissionTest(HomesTestCase):
+    """Folders without read, write, or search permission are removed and recovered without a traceback."""
+
+    def lock_down(self, folder: Path, mode: int) -> None:
+        os.chmod(folder, mode)
+        self.addCleanup(lambda: folder.exists() and os.chmod(folder, stat.S_IRWXU))
+
+    def test_remove_tree_keeps_search_permission_on_folders(self) -> None:
+        tree_root = self.homes.root / "stage"
+        for folder in ("closed", "read-only", "read-only/inner"):
+            (tree_root / folder).mkdir(parents=True)
+            (tree_root / folder / "file.txt").write_text("x\n", encoding="utf-8")
+        os.chmod(tree_root / "read-only" / "file.txt", stat.S_IRUSR)
+        self.lock_down(tree_root / "read-only", stat.S_IRUSR | stat.S_IXUSR)
+        self.lock_down(tree_root / "closed", 0)
+        INSTALL.remove_tree(tree_root)
+        self.assertFalse(tree_root.exists())
+
+    def test_recovery_removes_a_stage_holding_an_unreadable_folder(self) -> None:
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual(code, 0, err)
+        journal = journal_for(self.homes, self.homes.codex, committed=True)
+        stage = Path(journal["stage"])
+        shutil.copytree(ROOT / "skills" / "game-plan", stage / "old" / "game-plan")
+        self.lock_down(stage / "old" / "game-plan" / "references", 0)
+        write_journal(self.homes, journal)
+        completed = run_text(self.homes, "install", "--yes")
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        self.assertNotIn("Traceback", completed.stdout + completed.stderr)
+        self.assertIn("Recovered.", completed.stdout)
+        self.assertFalse(stage.exists())
+
+    def test_an_unreadable_installed_copy_is_left_and_reported(self) -> None:
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual(code, 0, err)
+        self.lock_down(self.homes.codex / "game-plan" / "references", 0)
+        for args in (("status", "--target", "codex"), ("install", "--yes", "--replace-modified"), ("uninstall", "--yes")):
+            with self.subTest(args=args):
+                completed = run_text(self.homes, *args)
+                self.assertNotIn("Traceback", completed.stdout + completed.stderr)
+                self.assertIn("unreadable" if args[0] == "status" else "REFUSED", completed.stdout)
+        self.assertTrue((self.homes.codex / "game-plan").exists())
 
 
 class NetworkTest(HomesTestCase):
