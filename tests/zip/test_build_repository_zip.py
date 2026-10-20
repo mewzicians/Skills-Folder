@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that skills/game-release/scripts/build_repository_zip.py fails closed.
+"""Check what skills/game-release/scripts/build_repository_zip.py packages, excludes, and refuses.
 
 Every risky file is generated at test time with placeholder text; the
 repository never holds a real or fake secret.
