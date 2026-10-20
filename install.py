@@ -24,10 +24,11 @@ is deleted. One install or uninstall runs at a time: each holds a lock on
 the state folder from start to finish, and a run that finds another one
 active refuses.
 
-Exit codes: 0 done or nothing to do, 1 failed (changes rolled back), 2 usage
-or environment error, 3 refused by a safety check (nothing changed),
-4 cancelled at the prompt (nothing changed). Python 3.11 or later, standard
-library only, and no network access.
+Exit codes: 0 done or nothing to do, 1 failed or interrupted after a change
+began (rolled back, or the next run finishes or rolls it back), 2 usage or
+environment error, 3 refused by a safety check (nothing changed), 4 cancelled
+before any change, at the prompt or with Ctrl+C (nothing changed). Python
+3.11 or later, standard library only, and no network access.
 """
 
 from __future__ import annotations
@@ -258,6 +259,16 @@ def write_atomic(path: Path, text: str) -> None:
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def access_hint(error: object) -> str | None:
+    """A hint for Windows' Access is denied (WinError 5), which open files usually cause."""
+    if getattr(error, "winerror", None) == 5 or "[WinError 5]" in str(error):
+        return (
+            "Windows denied access (WinError 5). An agent host, an editor, or another program may be holding "
+            "files in that folder open; close it, then run this command again."
+        )
+    return None
 
 
 def now() -> str:
@@ -881,20 +892,23 @@ class Transaction:
         self.ledger_path = plan.state / LEDGER_NAME
         self.journal: dict = {}
         self.rolled_back: list[str] = []
+        self.committed = False
+
+    @property
+    def started(self) -> bool:
+        """Whether this run's journal is on disk, so a failure from here on has steps to undo."""
+        return bool(self.journal) and self.journal_path.exists()
 
     def save(self) -> None:
         write_atomic(self.journal_path, json.dumps(self.journal, indent=2) + "\n")
 
     def begin(self) -> None:
+        """Write the journal in one atomic step; the state lock keeps any other run out."""
         self.plan.state.mkdir(parents=True, exist_ok=True)
-        try:
-            descriptor = os.open(self.journal_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError as error:
+        if self.journal_path.exists():
             raise UsageError(
-                f"{self.journal_path} exists: another install.py run is active, or one was interrupted. "
-                "If none is running, run this command again to roll the interrupted run back."
-            ) from error
-        os.close(descriptor)
+                f"{self.journal_path} exists: an earlier run was interrupted. Run this command again to recover it."
+            )
         self.journal = {
             "id": self.id,
             "pid": os.getpid(),
@@ -989,6 +1003,7 @@ class Transaction:
         self.write_ledger()
         self.journal["committed"] = True
         self.save()
+        self.committed = True
         return str(backup) if backup else None
 
     def write_ledger(self) -> None:
@@ -1014,7 +1029,10 @@ class Transaction:
                 remove_tree(Path(stage))
             self.journal_path.unlink()
         except OSError as error:
-            return f"the change is complete, but cleanup stopped ({error}); the next run finishes it."
+            hint = access_hint(error)
+            return f"the change is complete, but cleanup stopped ({error}); the next run finishes it." + (
+                f" {hint}" if hint else ""
+            )
         return None
 
     def rollback(self) -> list[str]:
@@ -1202,18 +1220,31 @@ def recover(state: Path, args, out: Reporter) -> tuple[int, dict]:
     if not ask("Recover it now?", args, out):
         return EXIT_CANCELLED, {"result": "cancelled", "journal": str(journal_path)}
     log: list[str] = []
-    if committed:
-        stage = journal.get("stage")
-        if stage and Path(stage).exists():
-            remove_tree(Path(stage))
-        journal_path.unlink()
-        problems = []
-    else:
-        problems = undo(journal, journal_path, log)
+    try:
+        if committed:
+            stage = journal.get("stage")
+            if stage and Path(stage).exists():
+                remove_tree(Path(stage))
+            journal_path.unlink()
+            problems = []
+        else:
+            problems = undo(journal, journal_path, log)
+    except KeyboardInterrupt:
+        for line in log:
+            out.say(f"  {line}")
+        out.say(
+            "Interrupted. The earlier run's changes are complete; run this command again to finish its cleanup."
+            if committed
+            else "Interrupted, so the rollback is not finished. Run this command again to roll back the rest."
+        )
+        return EXIT_FAILED, {"result": "interrupted", "committed": bool(committed), "rolled_back": log, "errors": []}
     for line in log:
         out.say(f"  {line}")
     for problem in problems:
         out.say(f"  PROBLEM: {problem}")
+    hint = next(filter(None, map(access_hint, problems)), None)
+    if hint:
+        out.say(f"  {hint}")
     out.say("Recovered. Nothing else was done; run the command again." if not problems else "Recovery is incomplete.")
     return EXIT_FAILED, {"result": "recovered" if not problems else "failed", "rolled_back": log, "errors": problems}
 
@@ -1258,22 +1289,22 @@ def change_locked(command: str, args, out: Reporter, source: Source, target: Tar
         out.say("Nothing to do: every skill is already in place." if command == "install" else "Nothing to uninstall.")
         return finish(EXIT_OK, "nothing-to-do")
     transaction = Transaction(plan)
-    transaction.begin()
     try:
-        backup = transaction.run()
+        transaction.begin()
+        transaction.run()
     except BaseException as error:  # noqa: BLE001 - every failure, including Ctrl+C, rolls back
-        problems = transaction.rollback()
-        out.say(f"Failed: {error!r}" if isinstance(error, KeyboardInterrupt) else f"Failed: {error}")
-        for line in transaction.rolled_back:
-            out.say(f"  rolled back: {line}")
-        for problem in problems:
-            out.say(f"  PROBLEM: {problem}")
-        out.say("Every change was rolled back." if not problems else "The rollback is incomplete; see above.")
+        if not transaction.started:
+            raise  # nothing changed: a usage error, or Ctrl+C before the journal, which main reports
+        if not transaction.committed:
+            return roll_back(transaction, error, out, finish)
+    backup = transaction.journal.get("backup")
+    try:
+        cleanup = transaction.finish()
+    except KeyboardInterrupt:
+        out.say("Interrupted during the cleanup. Done: every change was applied; the next run finishes the cleanup.")
         return finish(
-            EXIT_FAILED, "failed", error=str(error), rolled_back=transaction.rolled_back, errors=problems,
-            stage=transaction.journal.get("stage"),
+            EXIT_FAILED, "interrupted", committed=True, backup=backup, stage=transaction.journal.get("stage")
         )
-    cleanup = transaction.finish()
     if cleanup:
         plan.warnings.append(cleanup)
         out.say(f"Note: {cleanup}")
@@ -1282,6 +1313,33 @@ def change_locked(command: str, args, out: Reporter, source: Source, target: Tar
     if command == "install":
         out.say("Start a new agent session, then check the list with /skills.")
     return finish(EXIT_OK, "done", backup=backup, stage=transaction.journal.get("stage"))
+
+
+def roll_back(transaction: Transaction, error: BaseException, out: Reporter, finish) -> tuple[int, dict]:
+    """Undo a run that failed or was interrupted before its commit, and report the outcome."""
+    interrupted = isinstance(error, KeyboardInterrupt)
+    stage = transaction.journal.get("stage")
+    out.say("Interrupted (Ctrl+C); rolling back." if interrupted else f"Failed: {error}")
+    try:
+        problems = transaction.rollback()
+    except KeyboardInterrupt:
+        out.say("Interrupted, so the rollback is not finished. Run this command again to roll back the rest.")
+        return finish(
+            EXIT_FAILED, "interrupted", committed=False, error="interrupted" if interrupted else str(error),
+            rolled_back=transaction.rolled_back, errors=[], stage=stage,
+        )
+    for line in transaction.rolled_back:
+        out.say(f"  rolled back: {line}")
+    for problem in problems:
+        out.say(f"  PROBLEM: {problem}")
+    hint = next(filter(None, map(access_hint, [error, *problems])), None)
+    if hint:
+        out.say(f"  {hint}")
+    out.say("Every change was rolled back." if not problems else "The rollback is incomplete; see above.")
+    return finish(
+        EXIT_FAILED, "failed", error="interrupted" if interrupted else str(error), rolled_back=transaction.rolled_back,
+        errors=problems, stage=stage,
+    )
 
 
 def record_skips(plan: Plan) -> None:
@@ -1407,7 +1465,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="install.py",
         description="Install, check, or uninstall the Skills Folder skills for Codex or Claude Code.",
-        epilog="Exit codes: 0 done, 1 failed and rolled back, 2 usage error, 3 refused, 4 cancelled.",
+        epilog=(
+            "Exit codes: 0 done, 1 failed or interrupted after a change began, 2 usage or environment error, "
+            "3 refused, 4 cancelled before any change."
+        ),
     )
     parser.add_argument("--version", action="store_true", help="print the suite version and exit")
     commands = parser.add_subparsers(dest="command", metavar="{install,status,uninstall}")
@@ -1471,9 +1532,15 @@ def main(argv: list[str] | None = None) -> int:
     except SourceError as error:
         code, payload = EXIT_REFUSED, {"result": "refused", "error": str(error)}
         out.say(f"install.py: {error}")
+    except OSError as error:
+        code, payload = EXIT_USAGE, {"result": "usage-error", "error": str(error)}
+        out.say(f"install.py: {error}")
+        hint = access_hint(error)
+        if hint:
+            out.say(f"  {hint}")
     except KeyboardInterrupt:
         code, payload = EXIT_CANCELLED, {"result": "cancelled"}
-        out.say("Cancelled.")
+        out.say("Cancelled. Nothing was changed.")
     payload.setdefault("exit_code", code)
     if args.as_json:
         print(json.dumps(payload, indent=2))

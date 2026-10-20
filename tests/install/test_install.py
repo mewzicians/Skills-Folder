@@ -650,7 +650,71 @@ class AtomicityTest(HomesTestCase):
         with mock.patch.object(INSTALL.os, "rename", failing_rename(2, KeyboardInterrupt())):
             code, payload, err = run_here(self.homes, "install", "--yes")
         self.assertEqual((code, payload["result"]), (1, "failed"))
+        self.assertIn("Interrupted (Ctrl+C); rolling back.", err)
+        self.assertIn("Every change was rolled back.", err)
         self.assertUnchanged()
+
+    def test_ctrl_c_during_the_cleanup_reports_the_change_done(self) -> None:
+        def interrupted(path):
+            raise KeyboardInterrupt
+
+        with mock.patch.object(INSTALL, "remove_tree", interrupted):
+            code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"], payload["committed"]), (1, "interrupted", True), err)
+        self.assertIn("Done: every change was applied; the next run finishes the cleanup.", err)
+        self.assertInstalled(self.homes.codex)
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "recovered"), err)
+        self.assertInstalled(self.homes.codex)
+        self.assertEqual([path.name for path in self.homes.codex.parent.iterdir()], ["skills"])
+
+    def test_a_second_ctrl_c_during_the_rollback_leaves_it_to_the_next_run(self) -> None:
+        real_rename = os.rename
+        calls = {"count": 0}
+
+        def rename(source, destination):
+            calls["count"] += 1
+            if calls["count"] == 4:
+                raise OSError("injected failure")
+            if calls["count"] == 5:  # the rollback's first move back
+                raise KeyboardInterrupt
+            return real_rename(source, destination)
+
+        with mock.patch.object(INSTALL.os, "rename", rename):
+            code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"], payload["committed"]), (1, "interrupted", False), err)
+        self.assertIn("Failed: injected failure", err)
+        self.assertIn("Run this command again to roll back the rest.", err)
+        self.assertTrue((self.homes.state / "journal.json").exists())
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "recovered"), err)
+        self.assertUnchanged()
+
+    def test_ctrl_c_during_a_recovery_leaves_it_to_the_next_run(self) -> None:
+        with mock.patch.object(INSTALL, "undo", lambda journal, path, log: []):
+            with mock.patch.object(INSTALL.os, "rename", failing_rename(3, OSError("power cut"))):
+                code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual(code, 1, err)
+        with mock.patch.object(INSTALL.os, "rename", failing_rename(1, KeyboardInterrupt())):
+            code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"], payload["committed"]), (1, "interrupted", False), err)
+        self.assertIn("Run this command again to roll back the rest.", err)
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "recovered"), err)
+        self.assertUnchanged()
+
+    def test_ctrl_c_before_any_change_is_a_cancel(self) -> None:
+        def interrupted(*args, **kwargs):
+            raise KeyboardInterrupt
+
+        for where in ("ask", "save"):
+            with self.subTest(where=where):
+                owner = INSTALL if where == "ask" else INSTALL.Transaction
+                with mock.patch.object(owner, where, interrupted):
+                    code, payload, err = run_here(self.homes, "install", *([] if where == "ask" else ["--yes"]))
+                self.assertEqual((code, payload["result"]), (4, "cancelled"), err)
+                self.assertIn("Cancelled. Nothing was changed.", err)
+                self.assertUnchanged()
 
     def test_a_failed_ledger_write_rolls_the_swap_back(self) -> None:
         real_write = INSTALL.write_atomic
@@ -1103,6 +1167,46 @@ class SourceTest(HomesTestCase):
         self.assertEqual(code, 3, err)
         item = next(entry for entry in payload["plan"] if entry["skill"] == "game-debug")
         self.assertEqual((item["state"], item["action"]), ("link", "refuse"))
+
+
+class DeniedAccess(PermissionError):
+    """Windows' Access is denied, on any system."""
+
+    winerror = 5
+
+    def __str__(self) -> str:
+        return "[WinError 5] Access is denied: 'game-plan'"
+
+
+class ErrorMessageTest(HomesTestCase):
+    """An operating-system error is a plain message with exit 2, never a traceback."""
+
+    def test_an_os_error_is_a_message_not_a_traceback(self) -> None:
+        self.homes.state.parent.mkdir(parents=True, exist_ok=True)
+        self.homes.state.write_text("Not a folder.\n", encoding="utf-8", newline="\n")
+        for args in (("install", "--yes"), ("uninstall", "--yes")):
+            with self.subTest(args=args):
+                completed = run_text(self.homes, *args)
+                self.assertEqual(completed.returncode, 2, completed.stderr)
+                self.assertNotIn("Traceback", completed.stdout + completed.stderr)
+                self.assertIn("install.py: [", completed.stdout)
+                self.assertIn("skills-folder", completed.stdout)
+        self.assertFalse(self.homes.codex.exists())
+
+    def test_access_denied_suggests_closing_a_host_or_editor(self) -> None:
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual(code, 0, err)
+        changed = modify(self.homes.codex, "game-plan", "From an older release.\n")
+        edit_ledger(self.homes, self.homes.codex, "game-plan", version="1.0.0", digest=changed)
+        with mock.patch.object(INSTALL.os, "rename", failing_rename(0, DeniedAccess(13, "Access is denied"))):
+            code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "failed"), err)
+        self.assertIn("may be holding files in that folder open", err)
+        with mock.patch.object(INSTALL, "read_ledger", lambda path: (_ for _ in ()).throw(DeniedAccess(13, "denied"))):
+            code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
+        self.assertIn("may be holding files in that folder open", err)
+        self.assertIsNone(INSTALL.access_hint(OSError("something else")))
 
 
 class NetworkTest(HomesTestCase):
