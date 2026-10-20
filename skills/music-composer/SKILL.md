@@ -40,14 +40,15 @@ dramatic purpose, memorable identity, and honest self-critique.
 
 ## Read Before Judging
 
-Before substantive analysis, composition, or edits, read completely the
-general music guide the project profile names, if any. Only for
+Before substantive work, read completely the general music guide that the
+project profile names or repository guidance identifies, if any. Only for
 project-attached work, follow the profile to the music brief, current approval
-records, the active audition or source, and a worklog only when history
-matters. Read supplied music, notes, references, or recordings, not remembered
-summaries. With no guide, use the bundled references and a compact working
-brief; create permanent documentation only when the user or project workflow
-asks.
+records, the active audition, score, session, or audio source, the
+implementation when a claim depends on behavior, and a worklog only when
+history or approval evidence matters. Read supplied music, notes, references,
+or recordings, not remembered summaries. With no guide, use the bundled
+references and a compact working brief; create permanent documentation only
+when the user or project workflow asks.
 
 Reconcile conflicts newest first: the newest explicit user message or
 correction, the active continuity record, current approval and status
@@ -84,8 +85,9 @@ carries the strongest identity? What is the earliest broken decision? What
 must stay intact? Would this still compel if the user had not proposed it? Is
 it causal or merely more activity? Is a simpler answer stronger? How could it
 fail through fatigue, ambiguity, or technical limits? What is the smallest
-audible experiment? Resolve discoverable questions from evidence; ask the user
-at most three.
+audible experiment? Raise new questions when they materially affect the
+answer. Resolve discoverable questions from evidence; ask the user at most
+three, only when subjective intent genuinely remains.
 
 ## Develop The Music
 
@@ -115,8 +117,9 @@ to audition.
 
 ## Audition And Report
 
-Build a focused audition when listening will answer better than prose, with
-[references/audition-method.md](references/audition-method.md), plus
+Build a focused audition when listening will answer better than prose. Read
+[references/audition-method.md](references/audition-method.md) before building
+one or interpreting a listening verdict, plus
 [references/web-audio-auditions.md](references/web-audio-auditions.md) for
 code-generated audio.
 
@@ -135,8 +138,11 @@ action; never delete one.
 For substantial reviews, report the verdict, useful composer questions,
 reservations (critical problems, tuning watchpoints, and taste, or
 `None identified`), the recommendation, the next audition, and the exact
-decision status. Explain technical language through what the listener will hear, and
-say so plainly when music is pleasant but unfocused or overworked.
+decision status with its scope and evidence level: hypothesis, selected
+component, approved work, exploratory material, shipped implementation, or
+still open. Explain technical language through what the listener will hear,
+and say so plainly when music is pleasant but unfocused, impressive but
+emotionally flat, or overworked around a weak central idea.
 
 ## Editing Discipline
 
