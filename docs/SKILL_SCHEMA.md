@@ -184,15 +184,27 @@ loads whenever its skill runs, so `tools/verify_package.py` fails when:
 - a description is longer than 300 characters (`DESCRIPTION_BUDGET`);
 - all descriptions together are longer than 3,600 characters
   (`DESCRIPTION_TOTAL`); or
-- a body's estimated tokens exceed its cap (`BODY_BUDGET`): 2,500 for
-  `game-skill-auditor`, 2,000 for `music-composer` and
-  `game-context-continuity`, and 1,200 for every other skill.
+- a body's estimated tokens exceed its cap (`BODY_BUDGET`).
 
 A body is everything after the closing `---`. Its estimate is its characters
 divided by 4, rounded up. That is rough for any one tokenizer, but stable
-enough to compare skills with one another and with their caps. When a body
-outgrows its cap, move detail into an on-demand reference linked by one
-routing line. `--budgets` prints every skill's figures:
+enough to compare skills with one another and with their caps.
+
+Each body cap is a deliberate ratchet, not a target:
+
+| Skill | Cap (estimated tokens) | Reason |
+| --- | --- | --- |
+| Every workflow skill | 1,200 | A workflow body holds its contract; project detail lives in the project profile. |
+| `game-context-continuity` | 2,000 | Its body carries the ledger procedure that recovery depends on. |
+| `game-skill-auditor` | 2,500 | Its body carries the audit contract, evidence gates, and readiness calibration; method detail lives in its references. |
+| `music-composer` | 2,200 | 2,000 until the C2 review. Raised 10% to restore the scope gate, which classifies a request before any project read, and the project-attached reads, after the working-mode detail moved into a reference. |
+
+When a body outgrows its cap, move detail into an on-demand reference linked
+by one routing line. Lower a cap when a body shrinks for good. Raise one only
+to restore a rule that cannot move into a reference, by at most 10% at a time,
+and record the reason in this table and next to the cap in
+`tools/verify_package.py`. Never drop a rule to fit a cap. `--budgets` prints
+every skill's figures:
 
 ```text
 python -B tools/verify_package.py --budgets

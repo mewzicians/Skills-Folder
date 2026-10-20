@@ -92,11 +92,17 @@ IDENTICAL_GROUPS = {
 DESCRIPTION_CAP = 300
 DESCRIPTION_TOTAL_CAP = 3600
 CHARS_PER_TOKEN = 4
+# Body caps are deliberate ratchets. Lower one when a body shrinks for good;
+# raise one only to restore a rule that cannot move into a reference, by at
+# most 10% at a time, and record the reason here and in docs/SKILL_SCHEMA.md.
 WORKFLOW_BODY_TOKEN_CAP = 1200
 BODY_TOKEN_CAPS = {
     "game-context-continuity": 2000,
     "game-skill-auditor": 2500,
-    "music-composer": 2000,
+    # 2000 until the C2 review: raised 10% to restore the scope gate, which
+    # classifies a request before any project read, and the project-attached
+    # reads, after the working-mode detail moved into a reference.
+    "music-composer": 2200,
 }
 
 # Neutrality lint (part of the default run; --lint runs it alone). Every

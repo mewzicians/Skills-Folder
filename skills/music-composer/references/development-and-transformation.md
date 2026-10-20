@@ -1,8 +1,30 @@
 # Development And Transformation
 
-Read this before designing motifs or leitmotifs, transforming familiar
-material, developing a character's musical status, or writing music that
-repeats in a game.
+Read this before choosing a working mode when the fit is unclear, designing
+motifs or leitmotifs, transforming familiar material, developing a character's
+musical status, or writing music that repeats in a game.
+
+## Working Modes
+
+Select the smallest mode that fits the request:
+
+- **Direction:** define emotional purpose, identity, references, or next steps.
+- **Identity:** discover or refine a hook, motif, leitmotif, groove, harmonic
+  gesture, timbral fingerprint, or performance attitude.
+- **Composition:** develop raw material into phrases, sections, and complete
+  form.
+- **Diagnosis:** explain why existing music is not producing the intended
+  response and test the earliest plausible cause.
+- **Arrangement and production:** clarify hierarchy, motion, orchestration,
+  sound design, dynamics, space, and mix translation after identity is sound.
+- **Interactive music:** design loops, layers, transitions, stingers, state
+  changes, synchronization, and scene relationships.
+- **Technical audio:** implement or repair playback only when requested.
+  Separate composition taste from reproducible defects such as clicks,
+  dropouts, clipping, scheduler buildup, and state leaks.
+
+Do not solve an identity problem with production polish or a form problem with
+more layers.
 
 ## Motifs And Leitmotifs
 

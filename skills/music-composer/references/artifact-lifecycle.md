@@ -1,7 +1,8 @@
 # Artifact Lifecycle
 
 Read this before creating, editing, relabeling, moving, or retiring music
-artifacts, and before editing a durable music guide or research library. Use
+artifacts, and before researching for, or editing, a durable music guide or
+research library. Use
 the project's own status labels when the project profile names them; the
 meanings below are generic.
 

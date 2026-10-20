@@ -12,34 +12,42 @@ dramatic purpose, memorable identity, and honest self-critique.
 
 ## Scope The Request
 
-1. Read repository guidance and
-   [references/project-profile.md](references/project-profile.md).
-2. Treat a request as project-attached only when the user names the project or
-   artifact, supplies material with clear project provenance, clearly
-   continues a named project decision, or asks for a claim that depends on
-   current implementation, approval state, or history. Otherwise it is
-   project-unattached: "this loop," "a game," or "the current tune" do not by
-   themselves point at the workspace, open files, or project history;
-   repository location governs conduct, not creative scope.
-3. While unattached, do not read, mention, or apply a project brief, worklog,
-   approval record, audition, implementation detail, or project taste. Ask one
-   scope question only when project identity would materially change the
-   answer; otherwise use project-neutral assumptions.
-4. A mixed request about music and a neighboring domain stays generic unless
+1. Read only repository guidance, such as `AGENTS.md`.
+2. Classify the request before reading the project profile or any project
+   file, and before any project-specific recommendation. It is
+   project-attached only when the user names the project or artifact, directly
+   supplies material with clear project provenance, clearly continues an
+   already named project decision, or asks for a claim that depends on current
+   implementation, approval state, or history. Otherwise it is
+   project-unattached: "this loop," "the piece," "a game," or "the current
+   tune" do not by themselves refer to the workspace, open files, recent
+   project files, or prior project history.
+3. Repository location, `AGENTS.md`, open files, and available project
+   documents govern conduct but do not establish the creative scope of an
+   otherwise generic request.
+4. While unattached, use
+   [references/project-profile.md](references/project-profile.md) only to
+   locate a general music guide. Do not read, mention, or apply a project
+   brief, worklog, approval record, audition, implementation detail, or
+   project-specific taste; use the general guide and supplied material only.
+   Ask one scope question only when project identity would materially change
+   the answer; otherwise use project-neutral assumptions.
+5. A mixed request about music and a neighboring domain stays generic unless
    project provenance is explicit.
-5. Before sending an unattached response, scan it for project names, cue
+6. Before sending an unattached response, scan it for project names, cue
    names, mechanics, approvals, and history that did not come from the prompt
    or supplied material, and remove that leaked context.
 
 ## Read Before Judging
 
-Before substantive analysis, composition, or edits, read completely the music
-guide the project profile names, if any; for project-attached work, also its
-music brief, current approval records, the active audition or source, and a
-worklog only when history matters. Read supplied music, notes, references, or
-recordings, not remembered summaries. With no guide, use the bundled
-references and a compact working brief; create permanent documentation only
-when the user or project workflow asks.
+Before substantive analysis, composition, or edits, read completely the
+general music guide the project profile names, if any. Only for
+project-attached work, follow the profile to the music brief, current approval
+records, the active audition or source, and a worklog only when history
+matters. Read supplied music, notes, references, or recordings, not remembered
+summaries. With no guide, use the bundled references and a compact working
+brief; create permanent documentation only when the user or project workflow
+asks.
 
 Reconcile conflicts newest first: the newest explicit user message or
 correction, the active continuity record, current approval and status
@@ -67,16 +75,6 @@ silently protecting older material.
   evidence confirms integration. One passing component does not make a cue,
   direction, or workflow ready.
 
-## Choose The Mode
-
-Pick the smallest fit: **direction**, **identity** (hook, motif, groove,
-timbre), **composition**, **diagnosis** (test the earliest plausible cause),
-**arrangement and production** (after identity is sound), **interactive
-music**, or **technical audio** (only when requested; separate taste from
-reproducible clicks, dropouts, clipping, scheduler buildup, and state leaks).
-Do not solve an identity problem with production polish or a form problem
-with more layers.
-
 ## Review Like A Composer
 
 Before recommending, privately challenge the obvious answer and present only
@@ -91,27 +89,29 @@ at most three.
 
 ## Develop The Music
 
-State a one-sentence emotional north star; inventory selected material,
-feedback, constraints, and open decisions; protect two or three identity
-anchors; locate the earliest broken decision; generate two to four genuinely
-different options when discovery is needed; then recommend one with its
-consequence, strongest reservation, and why it outranks the rest. Preserve
-accidents that feel alive; complexity is not identity. Read
+Pick the smallest working mode: direction, identity, composition, diagnosis,
+arrangement and production, interactive music, or technical audio (only when
+requested). Do not solve an identity problem with production polish or a form
+problem with more layers. State a one-sentence emotional north star; inventory
+selected material, feedback, constraints, and open decisions; protect two or
+three identity anchors; locate the earliest broken decision; generate two to
+four genuinely different options when discovery is needed; then recommend one
+with its consequence, strongest reservation, and why it outranks the rest.
+Preserve accidents that feel alive; complexity is not identity. Read
 [references/development-and-transformation.md](references/development-and-transformation.md)
-for motifs, leitmotifs, high-energy transformation, character status, and
-music for games and repetition.
+for working modes, motifs, transformation, character status, and game music.
 
 ## Use References Responsibly
 
 Extract qualities from references, such as emotional arc, phrase motion,
-orchestration, density, harmony, groove, or interactive function. Never copy
-protected melody, lyrics, arrangement, signature sound design, performance,
-or recording. Treat an admired composer's name as a standard of craft. When a
-request asks to retain recognizable expression too closely, decline that
-replication and redirect to one source-independent identity decision or
-focused audition, not another preset formula. Separate research evidence,
-genre convention, taste, and project history; treat rigid formulas and
-unsupported emotional claims as hypotheses to audition.
+harmony, or groove. Never copy protected melody, lyrics, arrangement,
+signature sound design, performance, or recording. Treat an admired composer's
+name as a standard of craft. When a request asks to retain recognizable
+expression too closely, decline that replication and redirect to one
+source-independent identity decision or focused audition, not another preset
+formula. Separate research evidence, genre convention, taste, and project
+history; treat rigid formulas and unsupported emotional claims as hypotheses
+to audition.
 
 ## Audition And Report
 
@@ -142,10 +142,9 @@ say so plainly when music is pleasant but unfocused or overworked.
 
 - Keep planning separate from implementation unless the user requests both,
   and preserve unrelated changes.
-- Research when a concrete gap could materially improve the work. Edit a music
-  guide or research library only when the user asks or the project profile's
-  standing approvals cover it, then follow the lifecycle reference's
-  stewardship rules.
+- Edit a music guide or research library only when the user asks or the
+  project profile's standing approvals cover it, and then only under the
+  lifecycle reference's stewardship rules, which also say when to research.
 - Record only explicit approvals. When edits are permitted and a decision
   should persist, update every affected brief, worklog, and approval record.
 - Never integrate exploratory music into a shipped product before the project
