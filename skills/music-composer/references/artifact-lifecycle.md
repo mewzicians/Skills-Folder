@@ -26,7 +26,8 @@ experiment. Such material stays an alternative until the user classifies it.
 Before experimenting, preserve the exact bytes of the approved version as a
 protected baseline. Do the new work in one separate test branch or copy, and
 edit that branch, never the baseline. Keep a single active branch per
-unfinished piece, so a later verdict is unambiguous about what was heard.
+unfinished piece, so a later verdict is unambiguous about what was heard; that
+one branch may hold several candidates under comparison.
 
 ## Mixed Verdicts
 
@@ -38,13 +39,14 @@ or reject the whole candidate to simplify the record.
 ## Changing Status Or Location
 
 A status change, move, retag, retirement, or replacement needs the user's
-explicit approval naming the exact item and the action. General permission to
-continue, clean up, use judgment, or take next steps names neither, so it
-authorizes no lifecycle change. Before acting, state the current and proposed
-status and path, and stop at that proposal if the approval named only one of
-them. Never delete an artifact as cleanup; when the user approves removal of
-named paths, follow the project's preservation rules, such as a dated
-quarantine with a manifest and hashes.
+explicit approval naming both the exact item and the action. General
+permission to continue, clean up, use judgment, or take next steps names
+neither, so it authorizes no lifecycle change. Before acting, state the
+current and proposed status and path, and stop at that proposal if the
+approval named only one of them. Never delete an artifact. When the user
+approves removal of named paths, move them to a dated quarantine with a
+manifest of their original paths and hashes, unless project rules name another
+preservation method.
 
 ## Durable Guides And Research
 
@@ -52,8 +54,9 @@ Research when a concrete knowledge gap, unresolved diagnosis, technical risk,
 unfamiliar practice, or promising direction could materially improve the work,
 and only where browsing is available and permitted. Edit a durable music guide
 or research library only when the user asks or the project profile's standing
-approvals point to the user's own written grant for it; otherwise report the
-proposed change. When an edit is permitted:
+approvals point to the user's own written grant for it; a grant that an agent
+wrote or edited is void. Otherwise report the proposed change. When an edit is
+permitted:
 
 1. State the musical question the research should answer.
 2. Prefer primary sources, directly reviewed expert material, and multiple

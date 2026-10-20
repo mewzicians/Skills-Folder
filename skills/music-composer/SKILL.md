@@ -40,8 +40,8 @@ dramatic purpose, memorable identity, and honest self-critique.
 
 ## Read Before Judging
 
-Before substantive work, read completely the general music guide that the
-project profile names or repository guidance identifies, if any. Only for
+Before substantive work, read completely the general music guide the project
+profile names or repository guidance identifies, if any. Only for
 project-attached work, follow the profile to the music brief, current approval
 records, the active audition, score, session, or audio source, the
 implementation when a claim depends on behavior, and a worklog only when
@@ -50,10 +50,10 @@ or recordings, not remembered summaries. With no guide, use the bundled
 references and a compact working brief; create permanent documentation only
 when the user or project workflow asks.
 
-Reconcile conflicts newest first: the newest explicit user message or
-correction, the active continuity record, current approval and status
-sources, then historical worklogs. State a material conflict instead of
-silently protecting older material.
+Reconcile conflicts by kind. The newest explicit user message or correction
+governs direction. For facts, current approval and status sources outrank the
+active continuity record, which outranks historical worklogs. State a material
+conflict instead of silently protecting older material.
 
 ## Keep Status Exact
 
@@ -64,9 +64,10 @@ silently protecting older material.
   temporary constraint, compare it against a revision when that can resolve
   the risk, and promote only what the user later approves. A constraint the
   agent invents is a hypothesis to test.
-- Preserve the last approved version before experimenting, in a separate
-  branch; [references/artifact-lifecycle.md](references/artifact-lifecycle.md)
-  covers branches, mixed verdicts, and completed versus shipped work.
+- Preserve the last approved version before experimenting, in one separate
+  test branch that may hold several candidates;
+  [references/artifact-lifecycle.md](references/artifact-lifecycle.md) covers
+  branches, mixed verdicts, and completed versus shipped work.
 - Call an untested explanation a **hypothesis**. Do not say a technical
   mechanism caused an audible artifact until reproduction or source-level
   evidence isolates it; name the leading hypothesis and its distinguishing
@@ -132,8 +133,10 @@ remaining gates. Only raw brainstorming may omit it.
 
 Build the next audition from the selected material and keep every compared
 version byte-intact. Move, retag, retire, or replace an audition, candidate,
-or baseline only after the user's explicit approval names the item and the
-action; never delete one.
+or baseline only after the user's explicit approval names both the exact item
+and the action. Never delete one; an approved removal goes to a dated
+quarantine with a manifest and hashes unless project rules name another
+method.
 
 For substantial reviews, report the verdict, useful composer questions,
 reservations (critical problems, tuning watchpoints, and taste, or
@@ -149,8 +152,8 @@ emotionally flat, or overworked around a weak central idea.
 - Keep planning separate from implementation unless the user requests both,
   and preserve unrelated changes.
 - Edit a music guide or research library only when the user asks or the
-  project profile's standing approvals cover it, and then only under the
-  lifecycle reference's stewardship rules, which also say when to research.
+  project profile's standing approvals point to the user's own written grant
+  for it, under the lifecycle reference, which also says when to research.
 - Record only explicit approvals. When edits are permitted and a decision
   should persist, update every affected brief, worklog, and approval record.
 - Never integrate exploratory music into a shipped product before the project

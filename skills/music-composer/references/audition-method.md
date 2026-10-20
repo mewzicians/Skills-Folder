@@ -64,4 +64,4 @@ instead of promoting or rejecting the whole (see
 Build the next audition from the selected material. Leave every compared
 version byte-intact as evidence of what was heard. Retiring, moving, or
 replacing a compared candidate is a lifecycle change that needs the user's
-explicit approval naming the item and the action.
+explicit approval naming both the exact item and the action.
