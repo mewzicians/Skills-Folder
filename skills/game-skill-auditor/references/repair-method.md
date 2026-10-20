@@ -27,8 +27,8 @@ Return directional evolution as a recommendation and wait for approval.
    audit-only request. If execution is unavailable, label the proposed patch
    `Unvalidated` and check it manually against frontmatter, trigger, metadata,
    reference, and portability requirements.
-9. Rerun the official validator, bundled static audit, and relevant
-   forward-tests.
+9. Rerun the bundled or Codex's validator, the bundled static audit, and
+   relevant forward-tests.
 10. Run mutation and holdout tests proportional to the claim being made.
 11. Record the evidence in a manifest and run
     `scripts/assess_evidence.py`.

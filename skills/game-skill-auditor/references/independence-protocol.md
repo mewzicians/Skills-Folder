@@ -120,8 +120,8 @@ after the repair candidate and public tests are frozen.
 
 Use evidence with different failure modes:
 
-1. **Structural:** official validator, bundled checker, references, syntax,
-   metadata, and package layout.
+1. **Structural:** the bundled or Codex's validator, the bundled checker,
+   references, syntax, metadata, and package layout.
 2. **Behavioral:** canonical, paraphrase, edge, negative-control, and
    regression prompts. Preserve at least three direct canonical prompts, two
    paraphrases, two negative controls, one boundary/edge case, and one
@@ -301,7 +301,7 @@ Award only the highest fully supported level. The assessor awards only Level
 
 | Level | Required evidence |
 |---|---|
-| `Structurally Valid` | the official validator and bundled strict audit complete and pass with provenance |
+| `Structurally Valid` | the bundled or Codex's validator and the bundled strict audit complete and pass with provenance |
 | `Behaviorally Tested` | manual verdict after observing structural plus three direct, two paraphrased, two negative, one boundary, one regression, and three metamorphic prompts run with actual activation evidence |
 | `Adversarially Tested` | manual verdict after Level 2 plus observing completed mutation audits in all five categories, all Critical/High mutations detected, and at least 80 percent overall detected |
 | `Independently Cross-Checked` | manual verdict after adversarial evidence, actual evaluators outside the target skill, blind execution, two judgment contexts, and no unresolved material disagreement |
