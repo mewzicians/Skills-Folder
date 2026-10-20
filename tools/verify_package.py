@@ -95,12 +95,14 @@ BODY_TOKEN_CAPS = {
 # Neutrality lint (part of the default run; --lint runs it alone). Every
 # pattern is built from fragments, so this file never contains anything it
 # reports.
+# Only self-granting forms: ordinary consent text such as "after the user
+# grants approval" or "to remove this local installation" is not a hit.
 GRANT_PHRASES = (
-    ("has", "stand" + "ing", "appro" + "val", "to"),
-    ("has", "stand" + "ing", "permis" + "sion", "to"),
+    ("has", "stand" + "ing", "appro" + "val"),
+    ("has", "stand" + "ing", "permis" + "sion"),
     ("gra" + "nts", "stand" + "ing"),
-    ("The", "user", "gra" + "nts"),
-    ("This", "local", "instal" + "lation"),
+    ("gra" + "nted", "stand" + "ing"),
+    ("This", "local", "instal" + "lation", "has", "stand" + "ing"),
     ("permis" + "sion", "as", "autho" + "rity"),
 )
 # Words may wrap onto the next line, so any whitespace separates them.
@@ -109,18 +111,38 @@ GRANT_FORM = re.compile(
     re.IGNORECASE,
 )
 NEGATION = re.compile(r"\b(?:not|never|no|nobody|none|cannot|without|nor)\b|n't\b", re.IGNORECASE)
+# A negation exempts a phrase only from the last few words of its own clause.
+CLAUSE_BREAK = re.compile(r"[.!?;:,](?:\s|$)|\n\s*\n")
+NEGATION_WINDOW = 3
 # The profile template's field for pointing at a user's own written grant.
 STANDING_FIELD = re.compile(r"^\s*[-*]\s*" + "Stand" + "ing appro" + r"vals\b", re.IGNORECASE)
 NICKNAME = re.compile(r"\b" + "ch" + "ud" + r"s?\b", re.IGNORECASE)
+# Windows (C:\\...), Git Bash (/c/...), WSL (/mnt/c/...), macOS, and Linux
+# home folders. Each named group captures the account; a trailing slash is
+# optional.
 USER_PATH = re.compile(
-    r"(?<![A-Za-z0-9])(?i:[A-Za-z]:[\\/]{1,2}" + "us" + r"ers[\\/]{1,2})[^\\/\s\"'`<>]+"
-    + r"|(?<![\w.~-])/(?:" + "Us" + "ers|" + "ho" + r"me)/[A-Za-z0-9._-]+(?=/)"
+    r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]{1,2}(?i:" + "us" + r"ers)[\\/]{1,2}"
+    + r"(?P<win>[^\\/\s\"'`<>]+(?: (?i:users?)\b)?)"
+    + r"|(?<![\w.~-])(?:/mnt)?/[A-Za-z]/(?i:" + "us" + r"ers)/(?P<drive>[A-Za-z0-9._-]+)(?![A-Za-z0-9._-])"
+    + r"|(?<![\w.~-])/(?:" + "Us" + "ers|" + "ho" + r"me)/(?P<posix>[A-Za-z0-9._-]+)(?![A-Za-z0-9._-])"
 )
-EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+# Shared Windows profiles and CI runner accounts are not personal.
+SHARED_ACCOUNTS = {"public", "default", "default user", "all users", "runner", "runneradmin"}
+EMAIL = re.compile(
+    r"(?<![\w.%+-])[A-Za-z0-9._%+-]+@"
+    r"(?P<domain>[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*"
+    r"\.(?P<tld>[A-Za-z]{2,24}))\b"
+)
 ALLOWED_EMAIL_DOMAINS = ("example.com", "example.org", "example.net")
-VAULT_NAME = re.compile(
-    r"(?i:\." + "obsi" + r"dian)\b|\b" + "Wi" + r"ki/|\b" + "In" + r"box/|\b" + "Ho" + r"me\.md\b"
-)
+# An "@2x" or "@1.5x" asset name, or a file suffix where a domain would end.
+SCALED_ASSET = re.compile(r"\d+(?:\.\d+)?x\.", re.IGNORECASE)
+FILE_SUFFIXES = {
+    "avif", "bmp", "css", "gif", "html", "ico", "jpeg", "jpg", "js", "json", "md", "mp3", "mp4",
+    "ogg", "otf", "pdf", "png", "py", "svg", "toml", "ttf", "txt", "wav", "webp", "woff", "woff2",
+    "yaml", "yml",
+}
+# A wiki's Home.md is ordinary; vault folders are the private markers.
+VAULT_NAME = re.compile(r"(?i:\." + "obsi" + r"dian)\b|\b" + "Wi" + r"ki/|\b" + "In" + r"box/")
 LEDGER_FILE = "context_" + "continuity*.md"
 
 
@@ -432,10 +454,36 @@ def line_at(text: str, offset: int) -> int:
 
 
 def negated(text: str, start: int) -> bool:
-    """Whether the clause before a phrase negates it, as in 'nobody has ...'."""
-    before = text[max(0, start - 80) : start]
-    clause = re.split(r"[.!?]\s|\n\s*\n", before)[-1]
-    return NEGATION.search(clause) is not None
+    """Whether the words just before a phrase negate it, as in 'nobody has ...'.
+
+    Only the last NEGATION_WINDOW words of the phrase's own clause count, so
+    "Ask nobody; the agent has ..." is still a hit.
+    """
+    clause = CLAUSE_BREAK.split(text[max(0, start - 80) : start])[-1]
+    words = re.findall(r"[A-Za-z']+", clause)[-NEGATION_WINDOW:]
+    return NEGATION.search(" ".join(words)) is not None
+
+
+def user_path_lines(text: str) -> list[int]:
+    """Lines holding a personal home-folder path; shared and CI accounts pass."""
+    lines = set()
+    for match in USER_PATH.finditer(text):
+        account = next(value for value in match.group("win", "drive", "posix") if value is not None)
+        if account.casefold() not in SHARED_ACCOUNTS:
+            lines.add(line_at(text, match.start()))
+    return sorted(lines)
+
+
+def email_lines(text: str) -> list[int]:
+    """Lines holding a personal email address."""
+    lines = set()
+    for match in EMAIL.finditer(text):
+        domain = match.group("domain")
+        if SCALED_ASSET.match(domain) or match.group("tld").casefold() in FILE_SUFFIXES:
+            continue
+        if not email_allowed(match.group(0)):
+            lines.add(line_at(text, match.start()))
+    return sorted(lines)
 
 
 def grant_hits(text: str) -> list[tuple[int, int, str]]:
@@ -462,7 +510,8 @@ def email_allowed(address: str) -> bool:
     return (
         "noreply" in folded
         or "no-reply" in folded
-        or folded == "git@" + "github.com"
+        # An SSH remote such as git@<host>:owner/repo.git names no person.
+        or folded.startswith("git@")
         or any(domain == allowed or domain.endswith("." + allowed) for allowed in ALLOWED_EMAIL_DOMAINS)
     )
 
@@ -471,22 +520,20 @@ def lint_text(path: str, text: str, problems: list[Problem]) -> None:
     for first, last, phrase in grant_hits(text):
         where = f"lines {first}-{last}" if last > first else f"line {first}"
         problems.append(
-            Problem("LINT_GRANT_FORM", path, f"reads as self-granted standing permission ({where}: '{phrase}').", first)
+            Problem("LINT_GRANT_FORM", path, f"reads as a standing permission the text grants itself ({where}: '{phrase}').", first)
         )
     simple = (
         ("LINT_AGENT_NICKNAME", NICKNAME, "uses an author-specific delegated-agent nickname"),
-        ("LINT_USER_PATH", USER_PATH, "contains an absolute user path"),
-        ("LINT_VAULT_NAME", VAULT_NAME, "names a private vault folder or note"),
+        ("LINT_VAULT_NAME", VAULT_NAME, "names a private vault folder"),
     )
     for code, pattern, message in simple:
         lines = sorted({line_at(text, match.start()) for match in pattern.finditer(text)})
         for line in lines:
             problems.append(Problem(code, path, f"{message}.", line))
-    for match in EMAIL.finditer(text):
-        if not email_allowed(match.group(0)):
-            problems.append(
-                Problem("LINT_PERSONAL_EMAIL", path, "contains a personal email address.", line_at(text, match.start()))
-            )
+    for line in user_path_lines(text):
+        problems.append(Problem("LINT_USER_PATH", path, "contains an absolute user path.", line))
+    for line in email_lines(text):
+        problems.append(Problem("LINT_PERSONAL_EMAIL", path, "contains a personal email address.", line))
 
 
 def lint_files(root: Path, files: list[str], problems: list[Problem]) -> None:
@@ -494,9 +541,10 @@ def lint_files(root: Path, files: list[str], problems: list[Problem]) -> None:
     for path in files:
         if fnmatch.fnmatchcase(PurePosixPath(path).name.casefold(), LEDGER_FILE):
             problems.append(Problem("LINT_CONTINUITY_LEDGER", path, "is a continuity ledger; never commit one."))
+        if user_path_lines(path):
+            problems.append(Problem("LINT_USER_PATH", path, "the path contains an absolute user path."))
         for code, pattern, message in (
-            ("LINT_USER_PATH", USER_PATH, "the path contains an absolute user path."),
-            ("LINT_VAULT_NAME", VAULT_NAME, "the path names a private vault folder or note."),
+            ("LINT_VAULT_NAME", VAULT_NAME, "the path names a private vault folder."),
             ("LINT_AGENT_NICKNAME", NICKNAME, "the path uses an author-specific nickname."),
         ):
             if pattern.search(path):

@@ -401,6 +401,20 @@ PLANTED_LINES = [
     "Allowed: probe@example.com and git@" + "github.com.",  # 15
     "Vault: ." + "obsi" + "dian/app.json, " + "Wi" + "ki/Note.md, " + "In" + "box/a.md, " + "Ho" + "me.md.",  # 16
     "Not vault: wiki/ in lowercase, Homes.md, and CONTEXT_" + "CONTINUITY ledgers in prose.",  # 17
+    # Ordinary consent text is not a grant form.
+    "Proceed only after the user gra" + "nts approval, or if the user gra" + "nts access.",  # 18
+    "To remove this local instal" + "lation, delete its folder.",  # 19
+    "The agent has been gra" + "nted stand" + "ing approval to push.",  # 20
+    "It was gra" + "nted stand" + "ing permission once.",  # 21
+    # A negation elsewhere in the sentence does not exempt the phrase.
+    "Ask nobody; the agent has stand" + "ing approval to push.",  # 22
+    "Nobody has stand" + "ing approval, and this skill never gra" + "nts stand" + "ing approval.",  # 23: exempt
+    "Icons: sprite@2x.png and icon@1.5x.webp; remote git@" + "gitlab.com:team/repo.git.",  # 24
+    "CI: /" + "ho" + "me/runner/work, C:" + "\\Us" + "ers\\Public\\Desktop, C:" + "\\Us"
+    + "ers\\Default\\AppData, C:" + "\\Us" + "ers\\All Users\\x, and C:" + "\\Us" + "ers\\runneradmin\\y.",  # 25
+    "Git Bash: /c/" + "Us" + "ers/alex/game; WSL: /mnt/c/" + "Us" + "ers/alex/game.",  # 26
+    "Bare: /" + "Us" + "ers/alex and /" + "ho" + "me/alex",  # 27
+    "A GitHub wiki page: " + "Ho" + "me.md.",  # 28
 ]
 
 
@@ -426,10 +440,17 @@ class NeutralityLintTest(unittest.TestCase):
         doc = "docs/planted.md"
         ledger = "CONTEXT_" + "CONTINUITY.task.md"
         vault_note = "Wi" + "ki/note.md"
-        for name, text in ((doc, "\n".join(PLANTED_LINES) + "\n"), (ledger, "ledger\n"), (vault_note, "note\n")):
+        wiki_home = "Ho" + "me.md"
+        planted = (
+            (doc, "\n".join(PLANTED_LINES) + "\n"),
+            (ledger, "ledger\n"),
+            (vault_note, "note\n"),
+            (wiki_home, "Welcome.\n"),
+        )
+        for name, text in planted:
             (self.root / name).parent.mkdir(parents=True, exist_ok=True)
             (self.root / name).write_text(text, encoding="utf-8", newline="\n")
-        problems = [item for item in self.lint() if item["path"] in {doc, ledger, vault_note}]
+        problems = [item for item in self.lint() if item["path"] in {name for name, _ in planted}]
         self.assertEqual(
             {(item["code"], item["path"], item["line"]) for item in problems},
             {
@@ -442,6 +463,11 @@ class NeutralityLintTest(unittest.TestCase):
                 ("LINT_USER_PATH", doc, 13),
                 ("LINT_PERSONAL_EMAIL", doc, 14),
                 ("LINT_VAULT_NAME", doc, 16),
+                ("LINT_GRANT_FORM", doc, 20),
+                ("LINT_GRANT_FORM", doc, 21),
+                ("LINT_GRANT_FORM", doc, 22),
+                ("LINT_USER_PATH", doc, 26),
+                ("LINT_USER_PATH", doc, 27),
                 ("LINT_CONTINUITY_LEDGER", ledger, None),
                 ("LINT_VAULT_NAME", vault_note, None),
             },
