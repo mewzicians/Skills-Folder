@@ -83,6 +83,12 @@ VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 MAX_SKILL_NAME = 64
 RUN_ID = re.compile(r"\d{8}T\d{6}Z-[0-9a-f]{6}")
+# How Codex finds skills in a folder (codex-rs/ext/skills/src/loader): every
+# SKILL.md at most six levels below it (a skill folder at most five), outside
+# hidden folders, in at most 2,000 folders, named by its frontmatter name or
+# else its folder's name.
+CODEX_SCAN_DEPTH = 6
+CODEX_SCAN_FOLDERS = 2000
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_REFUSED, EXIT_CANCELLED = 0, 1, 2, 3, 4
 CHANGES = ("install", "upgrade", "downgrade", "replace")
@@ -604,6 +610,56 @@ def other_roots(target: Target) -> list[tuple[str, Path]]:
     return unique
 
 
+def frontmatter_name(folder: Path, schema) -> str | None:
+    """The name a host gives the skill in folder: its frontmatter name, or else the folder's name."""
+    try:
+        data = (folder / "SKILL.md").read_bytes()
+    except OSError:
+        return None
+    name = schema.validate_text(data, folder=folder.name, level="portable").frontmatter.get("name")
+    return name.strip() if isinstance(name, str) and name.strip() else folder.name
+
+
+def codex_skills(root: Path, schema) -> list[tuple[str, Path]]:
+    """(name, folder) for each skill Codex would load from root."""
+    found: list[tuple[str, Path]] = []
+    if not root.is_dir():
+        return found
+    for count, (directory, folders, files) in enumerate(os.walk(root, followlinks=True)):
+        here = Path(directory)
+        if count >= CODEX_SCAN_FOLDERS:
+            break
+        depth = len(here.relative_to(root).parts)
+        visible = [name for name in folders if not name.startswith(".") and name not in DEBRIS_DIRS]
+        folders[:] = sorted(visible) if depth + 1 < CODEX_SCAN_DEPTH else []
+        if here != root and "SKILL.md" in files:
+            name = frontmatter_name(here, schema)
+            if name is not None:
+                found.append((name, here))
+    return found
+
+
+def duplicate_copies(target: Target, source: Source) -> list[tuple[str, str, Path]]:
+    """(skill, label, folder) for each other copy the target's host would load under a suite skill's name.
+
+    A folder with the skill's name in another root counts for every host.
+    For Codex, so does any skill whose frontmatter name matches, anywhere
+    Codex looks in those roots or in the target itself.
+    """
+    names = [skill.name for skill in source.skills]
+    roots = other_roots(target)
+    found = [(name, label, root / name) for label, root in roots for name in names if os.path.lexists(root / name)]
+    if target.host == "codex":
+        schema = load_schema()
+        for label, root in [(target.name, target.root), *roots]:
+            for name, folder in codex_skills(root, schema):
+                if name not in names or same_path(folder, target.root / name):
+                    continue
+                if not any(name == seen and same_path(folder, path) for seen, _, path in found):
+                    found.append((name, label, folder))
+    return found
+
+
 def check_locations(target: Target, state: Path) -> None:
     if os.path.lexists(target.root) and not target.root.is_dir():
         raise UsageError(f"the destination {target.root} exists and is not a folder.")
@@ -749,7 +805,10 @@ def plan_install(target: Target, state: Path, source: Source, ledger: dict, args
     plan = Plan("install", target, state, source)
     records = recorded(ledger, target.root)
     plan.warnings.extend(ignored_records(ledger, target.root))
-    roots = other_roots(target)
+    duplicates = duplicate_copies(target, source)
+    legacy = dict(other_roots(target)).get("codex-legacy")
+    legacy_records = recorded(ledger, legacy) if legacy is not None else {}
+    unrecorded_legacy = False
     for skill in source.skills:
         item = inspect_copy(skill.name, target.root / skill.name, records.get(skill.name), skill.digest, source.version)
         if item.state == "absent":
@@ -764,18 +823,25 @@ def plan_install(target: Target, state: Path, source: Source, ledger: dict, args
             item.action, item.override = ("replace", None) if args.replace_modified else ("refuse", "--replace-modified")
         else:
             item.action = "refuse"
-        for label, root in roots:
-            other = root / skill.name
-            if os.path.lexists(other):
-                if item.action in CHANGES and not args.allow_duplicate_names:
-                    item.action, item.override, item.other_path = "refuse", "--allow-duplicate-names", other
-                    item.reason = (
-                        f"{item.path} would share its name with {other} ({label}); the same host loads both"
-                    )
-                elif item.action in CHANGES + ("skip",):
-                    plan.warnings.append(f"{skill.name} is also in {other} ({label}); the host loads both.")
-                break
+        for name, label, other in duplicates:
+            if name != skill.name:
+                continue
+            if item.action in CHANGES and not args.allow_duplicate_names:
+                item.action, item.override, item.other_path = "refuse", "--allow-duplicate-names", other
+                item.reason = f"{item.path} would share its name with {other} ({label}); the same host loads both"
+                if legacy is not None and same_path(other, legacy / name) and name not in legacy_records:
+                    unrecorded_legacy = True
+            elif item.action in CHANGES + ("skip",):
+                plan.warnings.append(f"{skill.name} is also in {other} ({label}); the host loads both.")
+            break
         plan.items.append(item)
+    if unrecorded_legacy:
+        plan.warnings.append(
+            f"the copies in {legacy} have no install record, as version 1.0 installed them. To move to "
+            f"{target.root}, run 'python install.py uninstall --target codex-legacy --include-modified', then "
+            "this command again; to keep the old folder instead, run 'python install.py install --target "
+            "codex-legacy --replace-modified'. The README's \"Upgrading from 1.0.x\" explains both."
+        )
     if target.host is None:
         plan.warnings.append("--dest skips the check for same-name skills in other folders.")
     plan.retired = plan_retired(target, args)
@@ -1386,14 +1452,13 @@ def status_of(target: Target, state: Path, source: Source, ledger: dict, out: Re
         if item.state != "absent":
             retired.append(item)
             out.say(f"  {'retired':<13} {item.skill:<26} from 1.0.x; install offers to move it to backups")
-    duplicates = []
-    for label, root in other_roots(target):
-        names = [skill.name for skill in source.skills if os.path.lexists(root / skill.name)]
-        duplicates.extend({"skill": name, "other_path": str(root / name), "root": label} for name in names)
-        if names and present:
-            shared = [item.skill for item in present if item.skill in names]
-            if shared:
-                out.say(f"  Note: {len(shared)} of these are also in {root} ({label}); the host loads both.")
+    duplicates = [
+        {"skill": name, "other_path": str(path), "root": label}
+        for name, label, path in duplicate_copies(target, source)
+    ]
+    for entry in duplicates:
+        if any(item.skill == entry["skill"] for item in present):
+            out.say(f"  Note: {entry['skill']} is also at {entry['other_path']} ({entry['root']}); the host loads both.")
     return {
         "target": target.name,
         "destination": str(target.root),

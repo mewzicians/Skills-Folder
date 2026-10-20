@@ -539,6 +539,89 @@ class DecisionTest(HomesTestCase):
         self.assertEqual([item["target"] for item in payload["targets"]], ["codex", "codex-legacy", "claude"])
 
 
+def plant_skill(folder: Path, name: str | None, description: str = "Another copy.") -> None:
+    """A SKILL.md in folder; name None leaves the frontmatter without a name."""
+    folder.mkdir(parents=True)
+    lines = ["---"] + ([f"name: {name}"] if name else []) + [f"description: {description}", "---", "Body.", ""]
+    (folder / "SKILL.md").write_text("\n".join(lines), encoding="utf-8", newline="\n")
+
+
+class DuplicateNameTest(HomesTestCase):
+    """Codex loads skills by frontmatter name, from anywhere in a root outside hidden folders."""
+
+    def refusals(self, payload: dict) -> dict[str, str]:
+        return {item["skill"]: item["other_path"] for item in payload["plan"] if item["action"] == "refuse"}
+
+    def test_a_renamed_or_nested_copy_is_a_duplicate(self) -> None:
+        legacy = self.homes.legacy
+        plant_skill(legacy / "my-old-plan", "game-plan")
+        plant_skill(legacy / "vendor" / "game-debug", "game-debug")
+        # Codex reads a SKILL.md at most six levels down: a skill folder five levels down counts, six does not.
+        plant_skill(legacy / "vendor" / "a" / "b" / "c" / "game-qa-cleanup", "game-qa-cleanup")
+        plant_skill(legacy / "vendor" / "a" / "b" / "c" / "d" / "music-composer", "music-composer")
+        plant_skill(legacy / ".hidden" / "game-ux-audit", "game-ux-audit")
+        plant_skill(legacy / "vendor" / ".cache" / "game-release", "game-release")
+        plant_skill(legacy / "game-implement-notes", "something-else")
+        plant_skill(legacy / "game-balance-lab-old", None)
+        code, payload, err = run_cli(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (3, "refused"), err)
+        self.assertEqual(
+            self.refusals(payload),
+            {
+                "game-plan": str(legacy / "my-old-plan"),
+                "game-debug": str(legacy / "vendor" / "game-debug"),
+                "game-qa-cleanup": str(legacy / "vendor" / "a" / "b" / "c" / "game-qa-cleanup"),
+            },
+        )
+        self.assertFalse(self.homes.codex.exists())
+        code, status, err = run_cli(self.homes, "status", "--target", "codex")
+        self.assertEqual(
+            sorted(entry["skill"] for entry in status["targets"][0]["duplicates"]),
+            ["game-debug", "game-plan", "game-qa-cleanup"],
+        )
+        code, payload, err = run_cli(self.homes, "install", "--yes", "--allow-duplicate-names")
+        self.assertEqual(code, 0, err)
+        self.assertInstalled(self.homes.codex)
+        warnings = " ".join(payload["warnings"])
+        self.assertIn(str(legacy / "my-old-plan"), warnings)
+        self.assertIn(str(legacy / "vendor" / "game-debug"), warnings)
+
+    def test_a_renamed_copy_in_the_target_itself_is_a_duplicate(self) -> None:
+        plant_skill(self.homes.codex / "my-old-plan", "game-plan")
+        code, payload, err = run_cli(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (3, "refused"), err)
+        self.assertEqual(self.refusals(payload), {"game-plan": str(self.homes.codex / "my-old-plan")})
+        self.assertIn("(codex)", next(item["reason"] for item in payload["plan"] if item["skill"] == "game-plan"))
+
+    def test_claude_roots_keep_the_folder_name_check(self) -> None:
+        plant_skill(self.homes.claude / "my-old-plan", "game-plan")
+        plant_skill(self.homes.claude / "game-debug", "game-debug")
+        project = self.homes.root / "game"
+        project.mkdir()
+        code, payload, err = run_cli(
+            self.homes, "install", "--target", "claude-project", "--project", str(project), "--yes"
+        )
+        self.assertEqual((code, payload["result"]), (3, "refused"), err)
+        self.assertEqual(self.refusals(payload), {"game-debug": str(self.homes.claude / "game-debug")})
+
+    def test_version_1_copies_point_to_the_upgrade_commands(self) -> None:
+        for name in SKILLS:
+            shutil.copytree(ROOT / "skills" / name, self.homes.legacy / name)
+        completed = run_text(self.homes, "install", "--yes")
+        self.assertEqual(completed.returncode, 3, completed.stderr)
+        self.assertIn("python install.py uninstall --target codex-legacy --include-modified", completed.stdout)
+        self.assertIn("python install.py install --target codex-legacy --replace-modified", completed.stdout)
+        self.assertIn("Upgrading from 1.0.x", completed.stdout)
+        # Copies this installer recorded there are not version 1.0 copies.
+        homes = Homes()
+        self.addCleanup(homes.cleanup)
+        code, payload, err = run_cli(homes, "install", "--target", "codex-legacy", "--yes")
+        self.assertEqual(code, 0, err)
+        completed = run_text(homes, "install", "--yes")
+        self.assertEqual(completed.returncode, 3, completed.stderr)
+        self.assertNotIn("Upgrading from 1.0.x", completed.stdout)
+
+
 class ConfirmationTest(HomesTestCase):
     def test_the_plan_is_applied_only_after_a_yes(self) -> None:
         for answer in ("n\n", "", "maybe\n"):
