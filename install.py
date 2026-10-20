@@ -69,6 +69,11 @@ DEBRIS_DIRS = frozenset({"__pycache__"})
 DEBRIS_FILES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
 DEBRIS_SUFFIXES = (".pyc", ".pyo")
 VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+# A skill name as a path part: lowercase kebab-case, at most 64 characters.
+# Ledger and journal data become paths only through child(), which applies it.
+SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+MAX_SKILL_NAME = 64
+RUN_ID = re.compile(r"\d{8}T\d{6}Z-[0-9a-f]{6}")
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_REFUSED, EXIT_CANCELLED = 0, 1, 2, 3, 4
 CHANGES = ("install", "upgrade", "downgrade", "replace")
@@ -146,6 +151,22 @@ def is_within(path: Path, parent: Path) -> bool:
         return os.path.commonpath([child, base]) == base
     except ValueError:  # different drives
         return False
+
+
+def child(root: Path, name: object) -> Path | None:
+    """root/name when name is a skill name that stays directly inside root; otherwise None."""
+    if not isinstance(name, str) or len(name) > MAX_SKILL_NAME or not SKILL_NAME.fullmatch(name):
+        return None
+    path = root / name
+    return path if path.parent == root else None
+
+
+def named(root: Path, name: str) -> Path:
+    """child() for a path this run is about to write; refuses anything else."""
+    path = child(root, name)
+    if path is None:
+        raise InstallError(f"{name!r} is not a skill name, so nothing was written for it outside {root}")
+    return path
 
 
 def is_link(path: Path) -> bool:
@@ -437,10 +458,27 @@ def read_ledger(path: Path) -> dict:
     return ledger
 
 
-def recorded(ledger: dict, root: Path) -> dict[str, dict]:
+def ledger_skills(ledger: dict, root: Path) -> dict:
     entry = ledger["roots"].get(root_key(root), {})
     skills = entry.get("skills", {}) if isinstance(entry, dict) else {}
-    return {name: value for name, value in skills.items() if isinstance(value, dict)} if isinstance(skills, dict) else {}
+    return skills if isinstance(skills, dict) else {}
+
+
+def recorded(ledger: dict, root: Path) -> dict[str, dict]:
+    """The ledger's records for root whose names are skill names; nothing else becomes a path."""
+    return {
+        name: value
+        for name, value in ledger_skills(ledger, root).items()
+        if isinstance(value, dict) and child(root, name) is not None
+    }
+
+
+def ignored_records(ledger: dict, root: Path) -> list[str]:
+    """A warning for ledger records whose names are not skill names, if there are any."""
+    names = sorted(repr(name) for name in ledger_skills(ledger, root) if child(root, name) is None)
+    if not names:
+        return []
+    return [f"the install record for {root} lists {', '.join(names)}, which are not skill names; ignored them."]
 
 
 # ----------------------------------------------------------------- plan
@@ -528,6 +566,7 @@ def inspect_copy(name: str, path: Path, record: dict | None, digest: str | None,
 def plan_install(target: Target, state: Path, source: Source, ledger: dict, args) -> Plan:
     plan = Plan("install", target, state, source)
     records = recorded(ledger, target.root)
+    plan.warnings.extend(ignored_records(ledger, target.root))
     roots = other_roots(target)
     for skill in source.skills:
         item = inspect_copy(skill.name, target.root / skill.name, records.get(skill.name), skill.digest, source.version)
@@ -580,6 +619,7 @@ def plan_retired(target: Target, args) -> list[Item]:
 def plan_uninstall(target: Target, state: Path, source: Source, ledger: dict, args) -> Plan:
     plan = Plan("uninstall", target, state, source)
     records = recorded(ledger, target.root)
+    plan.warnings.extend(ignored_records(ledger, target.root))
     digests = {skill.name: skill.digest for skill in source.skills}
     for name in sorted(set(digests) | set(records)):
         item = inspect_copy(name, target.root / name, records.get(name), digests.get(name), source.version)
@@ -699,10 +739,13 @@ class Transaction:
         }
         self.save()
 
-    def rename(self, source: Path, destination: Path) -> None:
+    def rename(self, source: Path, destination: Path, digest: str | None = None) -> None:
         if os.path.lexists(destination):
             raise InstallError(f"{destination} already exists")
-        self.journal["renames"].append({"from": str(source), "to": str(destination)})
+        step = {"from": str(source), "to": str(destination)}
+        if digest is not None:
+            step["digest"] = digest
+        self.journal["renames"].append(step)
         self.save()
         os.rename(source, destination)
 
@@ -725,11 +768,14 @@ class Transaction:
         (stage / "old").mkdir()
         sources = {skill.name: skill for skill in plan.source.skills}
         schema = load_schema()
+        for item in plan.changes + plan.moves:
+            if named(root, item.skill) != item.path:
+                raise InstallError(f"{item.path} is not {root / item.skill}; nothing outside {root} is changed")
         for item in plan.changes:
             if item.action == "remove":
                 continue
             skill = sources[item.skill]
-            staged = stage / "new" / skill.name
+            staged = named(stage / "new", skill.name)
             copy_tree(skill.path, staged, include_debris=False)
             if tree_digest(staged) != skill.digest:
                 raise InstallError(f"the staged copy of {skill.name} differs from its source")
@@ -746,7 +792,7 @@ class Transaction:
             manifest = []
             for item in replaced:
                 expected = tree_digest(item.path, include_debris=True)
-                copy_tree(item.path, backup / item.skill, include_debris=True)
+                copy_tree(item.path, named(backup, item.skill), include_debris=True)
                 if tree_digest(backup / item.skill, include_debris=True) != expected:
                     raise InstallError(f"the backup copy of {item.skill} does not match the original")
                 manifest.append(
@@ -764,9 +810,9 @@ class Transaction:
             )
         for item in sorted(plan.changes + plan.moves, key=lambda entry: entry.skill):
             if item.state != "absent":
-                self.rename(item.path, stage / "old" / item.skill)
+                self.rename(item.path, named(stage / "old", item.skill))
             if item.action in CHANGES:
-                self.rename(stage / "new" / item.skill, item.path)
+                self.rename(named(stage / "new", item.skill), item.path, sources[item.skill].digest)
         self.write_ledger()
         self.journal["committed"] = True
         self.save()
@@ -825,11 +871,69 @@ def apply_records(skills: dict, plan: Plan) -> None:
             skills.pop(item.skill, None)
 
 
-def undo(journal: dict, journal_path: Path, log: list[str]) -> list[str]:
+def same_text(first: object, second: Path) -> bool:
+    """Whether a journal value names second, compared as text since either may be missing."""
+    if not isinstance(first, str):
+        return False
+    return os.path.normcase(os.path.normpath(first)) == os.path.normcase(os.path.normpath(str(second)))
+
+
+def journal_problems(journal: dict, state: Path) -> list[str]:
+    """Each journal path that is not one its run writes: the skills folder, the stage, the backup, the ledger."""
+    run_id, root_text = journal.get("id"), journal.get("root")
+    if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
+        return [f"its run id {run_id!r} is not one this installer writes"]
+    if not isinstance(root_text, str) or not Path(root_text).is_absolute():
+        return [f"its skills folder {root_text!r} is not an absolute path"]
+    root = Path(root_text)
     problems = []
+    stage = real(root).parent / f"{STAGE_PREFIX}{run_id}"
+    if journal.get("stage") is not None and not same_text(journal.get("stage"), stage):
+        problems.append(f"its stage {journal.get('stage')!r} is not {stage}")
+    backup = journal.get("backup")
+    if backup is not None and not (
+        isinstance(backup, str)
+        and same_text(str(Path(backup).parent), state / "backups")
+        and Path(backup).name.startswith(f"{run_id}-")
+    ):
+        problems.append(f"its backup {backup!r} is not a folder in {state / 'backups'} named for the run")
+    if not same_text(journal.get("ledger"), state / LEDGER_NAME):
+        problems.append(f"its ledger {journal.get('ledger')!r} is not {state / LEDGER_NAME}")
+    if not isinstance(journal.get("ledger_before"), (str, type(None))):
+        problems.append("its copy of the earlier ledger is not text")
+    created = journal.get("created", [])
+    for folder in created if isinstance(created, list) else [created]:
+        if not any(same_text(folder, parent) for parent in (root, *root.parents)):
+            problems.append(f"it lists {folder!r} as a folder it created, which is neither {root} nor above it")
+    renames = journal.get("renames")
+    for step in renames if isinstance(renames, list) else [renames]:
+        source = step.get("from") if isinstance(step, dict) else None
+        destination = step.get("to") if isinstance(step, dict) else None
+        name = Path(destination).name if isinstance(destination, str) else None
+        inside = child(root, name)
+        outward = inside is not None and same_text(source, inside) and same_text(destination, stage / "old" / name)
+        inward = inside is not None and same_text(source, stage / "new" / name) and same_text(destination, inside)
+        if not (outward or inward):
+            problems.append(f"it records a move from {source!r} to {destination!r}, outside {root} and its stage")
+    return problems
+
+
+def undo(journal: dict, journal_path: Path, log: list[str]) -> list[str]:
+    """Reverse a run's recorded steps after checking that every one stays inside that run's folders."""
+    problems = journal_problems(journal, journal_path.parent)
+    if problems:
+        return [f"nothing was rolled back, because {problem}" for problem in problems]
     for step in reversed(journal.get("renames", [])):
         source, destination = Path(step["from"]), Path(step["to"])
         if os.path.lexists(destination) and not os.path.lexists(source):
+            if step.get("digest") is not None:
+                try:
+                    current = tree_digest(destination)
+                except OSError as error:
+                    current = f"unreadable: {error}"
+                if current != step["digest"]:
+                    problems.append(f"left {destination} in place, because it changed after this run put it there")
+                    continue
             try:
                 os.rename(destination, source)
                 log.append(f"restored {source}")
@@ -906,6 +1010,13 @@ def recover(state: Path, args, out: Reporter) -> tuple[int, dict]:
             f"{journal_path} records an interrupted run but cannot be read ({error}). Check the skills folder "
             "and the backups by hand, then move the journal aside."
         ) from error
+    problems = journal_problems(journal, state)
+    if problems:
+        raise UsageError(
+            f"{journal_path} records an interrupted run, but {'; '.join(problems)}. A journal names only that "
+            "run's skills folder, stage, backup, and ledger, so this one was not acted on and nothing was "
+            "changed. Check the skills folder and the backups by hand, then move the journal aside."
+        )
     committed = journal.get("committed")
     out.say(f"A previous run ({journal.get('command')} into {journal.get('root')}) did not finish: {journal_path}")
     out.say("  It will be finished (its changes are complete)." if committed else "  Its changes will be rolled back.")
@@ -1013,6 +1124,8 @@ def record_skips(plan: Plan) -> None:
 def status_of(target: Target, state: Path, source: Source, ledger: dict, out: Reporter) -> dict:
     records = recorded(ledger, target.root)
     out.say(f"{target.name}: {target.root}{'' if target.root.exists() else ' (does not exist)'}")
+    for warning in ignored_records(ledger, target.root):
+        out.say(f"  Note: {warning}")
     items = [
         inspect_copy(skill.name, target.root / skill.name, records.get(skill.name), skill.digest, source.version)
         for skill in source.skills

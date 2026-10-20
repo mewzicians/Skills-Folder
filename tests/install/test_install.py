@@ -728,6 +728,161 @@ class AtomicityTest(HomesTestCase):
         self.assertEqual([path.name for path in self.homes.codex.parent.iterdir()], ["skills"])
 
 
+RUN_ID = "20261020T120000Z-abc123"
+
+
+def journal_for(homes: Homes, root: Path, **values) -> dict:
+    """A journal for an interrupted run into root that touched nothing, as install.py writes one."""
+    journal = {
+        "id": RUN_ID,
+        "command": "install",
+        "root": str(root),
+        "created": [],
+        "stage": str(INSTALL.real(root).parent / f".skills-folder-stage-{RUN_ID}"),
+        "backup": None,
+        "renames": [],
+        "ledger": str(homes.state / "install-ledger.json"),
+        "ledger_before": None,
+        "ledger_written": False,
+        "committed": False,
+    }
+    journal.update(values)
+    return journal
+
+
+def write_journal(homes: Homes, journal: dict) -> Path:
+    path = homes.state / "journal.json"
+    path.write_text(json.dumps(journal, indent=2) + "\n", encoding="utf-8", newline="\n")
+    return path
+
+
+class LedgerAndJournalSafetyTest(HomesTestCase):
+    """Ledger and journal data become paths only inside the run's own folders."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual(code, 0, err)
+        self.victims = [self.homes.home / "victim", self.homes.state / "victim", self.homes.root / "abs-victim"]
+        for folder in self.victims:
+            folder.mkdir(parents=True)
+            (folder / "data.txt").write_text("Keep me.\n", encoding="utf-8", newline="\n")
+        self.victims_before = {str(folder): tree(folder) for folder in self.victims}
+
+    def assertVictimsUntouched(self) -> None:
+        self.assertEqual({str(folder): tree(folder) for folder in self.victims}, self.victims_before)
+
+    def test_ledger_names_that_are_not_skill_names_are_ignored(self) -> None:
+        ledger = json.loads(self.homes.ledger.read_text(encoding="utf-8"))
+        skills = ledger["roots"][INSTALL.root_key(self.homes.codex)]["skills"]
+        digest = INSTALL.tree_digest(self.victims[0])
+        names = [
+            "../../victim", "..\\..\\victim", "game-plan/../../../victim", str(self.victims[2]), "/abs-victim",
+            ".", "..", "Game-Plan", "game-plan\n", "game--plan", "a" * 65,
+        ]
+        for name in names:
+            skills[name] = {"version": VERSION, "digest": digest}
+        self.homes.ledger.write_text(json.dumps(ledger, indent=2) + "\n", encoding="utf-8", newline="\n")
+        code, status, err = run_cli(self.homes, "status", "--target", "codex")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted(item["skill"] for item in status["targets"][0]["skills"]), SKILLS)
+        code, payload, err = run_cli(self.homes, "uninstall", "--yes", "--include-modified")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted(actions(payload)), SKILLS)
+        self.assertTrue(any("which are not skill names" in warning for warning in payload["warnings"]))
+        self.assertNoSuiteSkills(self.homes.codex)
+        [backup] = self.homes.backups()
+        self.assertEqual(sorted(path.name for path in backup.iterdir()), sorted(SKILLS + ["backup.json"]))
+        self.assertVictimsUntouched()
+        self.assertEqual(sorted(path.name for path in self.homes.home.iterdir()), [".agents", "victim"])
+        self.assertEqual([path.name for path in self.homes.codex.parent.iterdir()], ["skills"])
+        expected = {"backups", "install-ledger.json", "install.lock", "victim"}
+        self.assertLessEqual({path.name for path in self.homes.state.iterdir()}, expected)
+
+    def test_a_journal_naming_paths_outside_its_run_is_refused(self) -> None:
+        root, victim = self.homes.codex, self.victims[0]
+        base = journal_for(self.homes, root)
+        stage = Path(base["stage"])
+        cases = {
+            "backup outside the backups folder": {"backup": str(victim)},
+            "backup elsewhere in the state folder": {"backup": str(self.homes.state / "victim")},
+            "stage": {"stage": str(victim)},
+            "ledger": {"ledger": str(victim / "data.txt"), "ledger_written": True, "ledger_before": "Replaced.\n"},
+            "created folder": {"created": [str(victim)]},
+            "move from outside": {"renames": [{"from": str(victim), "to": str(stage / "old" / "victim")}]},
+            "move to outside": {"renames": [{"from": str(stage / "new" / "game-plan"), "to": str(victim)}]},
+            "traversal": {
+                "renames": [{"from": str(root / ".." / ".." / "victim"), "to": str(stage / "old" / ".." / ".." / "victim")}]
+            },
+            "absolute name": {"renames": [{"from": str(self.victims[2]), "to": str(stage / "old" / "abs-victim")}]},
+            "run id": {"id": "..", "stage": str(INSTALL.real(root).parent / ".skills-folder-stage-..")},
+            "relative root": {"root": "skills"},
+        }
+        before = tree(root)
+        for label, values in cases.items():
+            with self.subTest(case=label):
+                write_journal(self.homes, dict(base, **values))
+                code, payload, err = run_cli(self.homes, "install", "--yes")
+                self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
+                self.assertIn("was not acted on", payload["error"])
+                self.assertVictimsUntouched()
+                self.assertEqual(tree(root), before)
+                self.assertTrue((self.homes.state / "journal.json").exists())
+        # The same journal naming only its own run's paths is recovered.
+        write_journal(self.homes, base)
+        code, payload, err = run_cli(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "recovered"), err)
+        self.assertFalse((self.homes.state / "journal.json").exists())
+
+    def test_rollback_acts_on_nothing_when_a_step_leaves_the_run(self) -> None:
+        journal = journal_for(self.homes, self.homes.codex, backup=str(self.victims[0]))
+        path = write_journal(self.homes, journal)
+        log: list[str] = []
+        problems = INSTALL.undo(journal, path, log)
+        self.assertTrue(problems)
+        self.assertTrue(all("nothing was rolled back" in problem for problem in problems), problems)
+        self.assertEqual(log, [])
+        self.assertVictimsUntouched()
+        self.assertTrue(path.exists())
+
+    def test_every_write_lands_in_the_run_folders(self) -> None:
+        target = INSTALL.Target("codex", "codex", self.homes.codex)
+        plan = INSTALL.Plan("install", target, self.homes.state, INSTALL.load_source())
+        outside = INSTALL.Item("../../victim", "older", "upgrade", self.homes.codex / ".." / ".." / "victim", "")
+        plan.items.append(outside)
+        transaction = INSTALL.Transaction(plan)
+        transaction.begin()
+        with self.assertRaises(INSTALL.InstallError):
+            transaction.run()
+        self.assertEqual(transaction.rollback(), [])
+        self.assertVictimsUntouched()
+        self.assertEqual([path.name for path in self.homes.codex.parent.iterdir()], ["skills"])
+        self.assertFalse((self.homes.state / "journal.json").exists())
+
+    def test_recovery_leaves_a_copy_that_changed_after_the_run(self) -> None:
+        changed = modify(self.homes.codex, "game-plan", "From an older release.\n")
+        edit_ledger(self.homes, self.homes.codex, "game-plan", version="1.0.0", digest=changed)
+        real_write = INSTALL.write_atomic
+
+        def crash_at_the_ledger(path, text):
+            if Path(path).name == "install-ledger.json":
+                raise OSError("power cut")
+            return real_write(path, text)
+
+        # Simulate a crash after the swap: the failure happens, but no rollback runs.
+        with mock.patch.object(INSTALL, "undo", lambda journal, path, log: []):
+            with mock.patch.object(INSTALL, "write_atomic", crash_at_the_ledger):
+                code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual(code, 1, err)
+        modify(self.homes.codex, "game-plan", "Edited after the crash.\n")
+        edited = tree(self.homes.codex / "game-plan")
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "failed"), err)
+        self.assertTrue(any("game-plan in place" in problem for problem in payload["errors"]), payload["errors"])
+        self.assertEqual(tree(self.homes.codex / "game-plan"), edited)
+        self.assertTrue((self.homes.state / "journal.json").exists())
+
+
 class SourceTest(HomesTestCase):
     """The installer validates its own package before it plans anything."""
 
