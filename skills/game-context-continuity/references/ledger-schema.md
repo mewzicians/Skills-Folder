@@ -109,13 +109,22 @@ such as `TODO`, `TBD`, or bracketed instructions in an active ledger.
 A `None.` marker must be the sole content of its section. Use only the headings
 in the required template; unexpected headings are invalid.
 
+## Closed Ledgers
+
+A ledger with `Status: complete` is closed, immutable history. Do not edit,
+annotate, re-stamp, or revalidate it afterward: later annotations can break
+validation and misstate what was known when it closed. Put corrections in a
+new ledger or in the project's durable sources, and leave the closed ledger
+as written.
+
 ## Source Precedence
 
 For instructions and intended behavior, apply:
 
 1. system, developer, safety, and other higher-level instructions;
 2. newest user direction;
-3. applicable project guidance such as nested `AGENTS.md`;
+3. applicable repository guidance files, such as nested `AGENTS.md` or
+   `CLAUDE.md` and their imports.
 
 For current factual state, prefer direct code, files, tests, processes, and
 external-system observations over descriptive documentation, then the

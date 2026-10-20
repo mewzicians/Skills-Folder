@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -166,6 +167,34 @@ def slugify(value: str) -> str:
 
 def default_ledger(workspace: Path, task_id: str) -> Path:
     return workspace / f"CONTEXT_CONTINUITY.{task_id}.md"
+
+
+def commit_warning(
+    ledger: Path,
+    git: str = "git",
+    env: dict[str, str] | None = None,
+) -> str | None:
+    """A warning when git would commit the ledger, else None.
+
+    Returns None when git is unavailable, the ledger is outside a git work
+    tree, or an ignore rule already covers it.
+    """
+    try:
+        completed = subprocess.run(
+            [git, "-C", str(ledger.parent), "check-ignore", "-q", "--", ledger.name],
+            capture_output=True,
+            env=env,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 1:
+        return None
+    return (
+        f"WARNING: git does not ignore {ledger.name}, so it would be committed. "
+        "Add an ignore rule such as CONTEXT_CONTINUITY*.md, or move the ledger."
+    )
 
 
 def workspace_fingerprint(workspace: Path) -> str:
@@ -959,6 +988,9 @@ def command_init(args: argparse.Namespace) -> int:
     except OSError as error:
         print(f"ERROR: unable to create ledger: {error}", file=sys.stderr)
         return 2
+    warning = commit_warning(ledger)
+    if warning is not None:
+        print(warning, file=sys.stderr)
     print(ledger)
     return 0
 
@@ -1001,6 +1033,9 @@ def command_summary(args: argparse.Namespace) -> int:
 
 def command_self_test(_: argparse.Namespace) -> int:
     failures: list[str] = []
+    skipped: list[str] = []
+    # Each check below counts itself, so case_count is computed, not assumed.
+    cases = 0
 
     def invoke(function, namespace: argparse.Namespace) -> tuple[int, str, str]:
         stdout = io.StringIO()
@@ -1038,6 +1073,7 @@ def command_self_test(_: argparse.Namespace) -> int:
             1,
         )
         write_text_atomic(good, good_content)
+        cases += 1
         if validate_ledger(good, workspace):
             failures.append("valid ledger produced findings")
 
@@ -1057,6 +1093,7 @@ def command_self_test(_: argparse.Namespace) -> int:
                 1,
             ),
         )
+        cases += 1
         if validate_ledger(complete, workspace):
             failures.append("valid complete ledger produced findings")
 
@@ -1179,6 +1216,7 @@ def command_self_test(_: argparse.Namespace) -> int:
             candidate = workspace / f"{name}.md"
             write_text_atomic(candidate, content)
             findings = validate_ledger(candidate, workspace)
+            cases += 1
             if not any(
                 item["severity"] == "ERROR" and item["code"] == expected_code
                 for item in findings
@@ -1190,6 +1228,7 @@ def command_self_test(_: argparse.Namespace) -> int:
             redacted,
             base.replace("None known.", "api_key=<redacted>", 1),
         )
+        cases += 1
         if any(
             item["code"] == "SECRET"
             for item in validate_ledger(redacted, workspace)
@@ -1206,6 +1245,7 @@ def command_self_test(_: argparse.Namespace) -> int:
                 1,
             ),
         )
+        cases += 1
         if any(
             item["code"] == "PLACEHOLDER"
             for item in validate_ledger(historical_todo, workspace)
@@ -1224,6 +1264,7 @@ def command_self_test(_: argparse.Namespace) -> int:
             ),
         )
         transcript_findings = validate_ledger(transcript, workspace)
+        cases += 1
         if not any(
             item["severity"] == "WARN"
             and item["code"] == "TRANSCRIPT_SPEAKER"
@@ -1241,6 +1282,7 @@ def command_self_test(_: argparse.Namespace) -> int:
                 json=False,
             ),
         )
+        cases += 1
         if transcript_check == 0:
             failures.append("strict checking accepted transcript-shaped bloat")
 
@@ -1268,6 +1310,7 @@ def command_self_test(_: argparse.Namespace) -> int:
                 json=False,
             ),
         )
+        cases += 1
         if stale_check == 0:
             failures.append("strict checking accepted a ledger older than 24 hours")
         stale_inspection, _, _ = invoke(
@@ -1281,6 +1324,7 @@ def command_self_test(_: argparse.Namespace) -> int:
                 json=False,
             ),
         )
+        cases += 1
         if stale_inspection != 0:
             failures.append("--allow-stale did not permit inspection")
 
@@ -1289,6 +1333,7 @@ def command_self_test(_: argparse.Namespace) -> int:
             workspace,
             float("nan"),
         )
+        cases += 1
         if not any(
             item["severity"] == "ERROR" and item["code"] == "MAX_AGE"
             for item in max_age_findings
@@ -1304,6 +1349,7 @@ def command_self_test(_: argparse.Namespace) -> int:
         copied = copied_workspace / good.name
         write_text_atomic(copied, base)
         copied_findings = validate_ledger(copied, copied_workspace)
+        cases += 1
         if not any(
             item["severity"] == "ERROR"
             and item["code"] == "WORKSPACE_FINGERPRINT"
@@ -1323,6 +1369,7 @@ def command_self_test(_: argparse.Namespace) -> int:
         expected_ledger = (
             init_workspace / "CONTEXT_CONTINUITY.verified-resume.md"
         )
+        cases += 1
         if first_init != 0 or not expected_ledger.is_file():
             failures.append("task-specific default initialization failed")
         initial_strict, _, _ = invoke(
@@ -1336,6 +1383,7 @@ def command_self_test(_: argparse.Namespace) -> int:
                 json=False,
             ),
         )
+        cases += 1
         if initial_strict == 0:
             failures.append("strict checking accepted an ungrounded initial ledger")
         before_overwrite = (
@@ -1345,6 +1393,7 @@ def command_self_test(_: argparse.Namespace) -> int:
         after_overwrite = (
             expected_ledger.read_bytes() if expected_ledger.is_file() else b""
         )
+        cases += 1
         if second_init == 0 or before_overwrite != after_overwrite:
             failures.append("existing-ledger overwrite was not refused atomically")
 
@@ -1358,12 +1407,73 @@ def command_self_test(_: argparse.Namespace) -> int:
                 task_id="missing-workspace",
             ),
         )
+        cases += 1
         if missing_init == 0 or missing_workspace.exists():
             failures.append("initialization created or accepted a missing workspace")
 
+        # init warns when git would commit the ledger, and stays quiet when an
+        # ignore rule covers it or no git work tree is found.
+        outside = workspace / "outside-git"
+        outside.mkdir()
+        ceiling = dict(os.environ, GIT_CEILING_DIRECTORIES=str(workspace))
+        cases += 1
+        if commit_warning(outside / "CONTEXT_CONTINUITY.x.md", git="no-such-git-for-self-test") is not None:
+            failures.append("a missing git executable produced a commit warning")
+        cases += 1
+        if commit_warning(outside / "CONTEXT_CONTINUITY.x.md", env=ceiling) is not None:
+            failures.append("a ledger outside any git work tree produced a commit warning")
+        git = shutil.which("git")
+        repository = workspace / "git-workspace"
+        repository.mkdir()
+        empty_excludes = workspace / "empty-excludes"
+        write_text_atomic(empty_excludes, "")
+        prepared = git is not None and all(
+            subprocess.run(
+                [git, "-C", str(repository), *arguments],
+                capture_output=True,
+                env=ceiling,
+                check=False,
+            ).returncode
+            == 0
+            for arguments in (
+                ["init", "-q"],
+                # Hide the user's global ignore file so the probe is hermetic.
+                ["config", "core.excludesFile", empty_excludes.as_posix()],
+            )
+        )
+        if not prepared:
+            skipped.append("git commit warning (git is unavailable)")
+        else:
+            unignored, _, unignored_err = invoke(
+                command_init,
+                argparse.Namespace(
+                    workspace=str(repository),
+                    ledger=None,
+                    objective="Warn before a ledger is committed to the repository.",
+                    task_id="unignored",
+                ),
+            )
+            cases += 1
+            if unignored != 0 or "would be committed" not in unignored_err:
+                failures.append("init did not warn about a ledger git would commit")
+            write_text_atomic(repository / ".gitignore", "CONTEXT_CONTINUITY*.md\n")
+            ignored, _, ignored_err = invoke(
+                command_init,
+                argparse.Namespace(
+                    workspace=str(repository),
+                    ledger=None,
+                    objective="Stay quiet when an ignore rule covers the ledger.",
+                    task_id="ignored",
+                ),
+            )
+            cases += 1
+            if ignored != 0 or "WARNING" in ignored_err:
+                failures.append("init warned about a ledger that git ignores")
+
     payload = {
         "passed": not failures,
-        "case_count": 29,
+        "case_count": cases,
+        "skipped": skipped,
         "failures": failures,
     }
     print(json.dumps(payload, indent=2))
