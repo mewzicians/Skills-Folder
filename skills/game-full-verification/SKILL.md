@@ -5,7 +5,7 @@ description: Exhaustively verify a complete game release candidate with evidence
 
 # Game Full Verification
 
-Read repository guidance and [references/project-profile.md](references/project-profile.md). Freeze the exact candidate version/hash and every active source of truth. Run the complete `game-qa-cleanup` consistency phase without modifying gameplay.
+Read repository guidance and [references/project-profile.md](references/project-profile.md). Freeze the exact candidate version/hash and every active source of truth. Run the read-only consistency checks verification needs: references and links, encoding and debris, decision-status consistency, and mirror and manifest equality. Verification never edits gameplay or documents; when a check finds drift, report it, and clean up only if the user separately asks for cleanup.
 
 Reconstruct a bidirectional requirement matrix: every approved requirement must map to implementation, player-facing explanation, and current-version evidence; every material implementation branch must map back to status, exposure, and tests. Mark each row `Pass`, `Fail`, `Not Run`, or `Blocked`.
 
@@ -22,4 +22,4 @@ Verify proportionally across:
 
 Run timing-sensitive browser or audio suites one at a time, because contention can manufacture the failure. When the project defines rigor levels, state the level used and never silently downgrade it. A hash in a historical record describes the bytes of its time and is not drift.
 
-A containing gate fails when a required subrequirement fails. Never repair gameplay during verification-only work. Write a dated current-version report with hashes, matrix, failures, blocked and unrun scope, and ship verdict. Synchronize configured evidence and state the exact next blocker.
+A containing gate fails when a required subrequirement fails. Never repair gameplay during verification-only work. Write a dated current-version report with hashes, matrix, failures, blocked and unrun scope, and ship verdict where the project keeps verification evidence, plus any configured mirror copy of that report, or give it in the response; change no other file. State the exact next blocker.
