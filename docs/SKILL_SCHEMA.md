@@ -171,10 +171,10 @@ generated Claude-only copy would need its own freshness checks. Neither is worth
 it until trigger data shows a problem. Claude Code still lists every skill, so
 its description budget counts explicit-only skills too.
 
-The explicit-only skills are `game-github-package` (the packaging skill),
-`game-qa-cleanup`, and `game-full-verification`. Their `agents/openai.yaml`
-files gain the policy in a later v1.1 step. Each new skill is classified when it
-ships.
+The explicit-only skills are `game-release` (the packaging skill),
+`game-qa-cleanup`, and `game-full-verification`. `game-release` sets the
+policy; the other two gain it in a later v1.1 step. Each new skill is
+classified when it ships.
 
 ## Relationship To Other Checks
 

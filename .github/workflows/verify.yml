@@ -74,6 +74,7 @@ jobs:
           python -B -X warn_default_encoding -W error::EncodingWarning tests/frontmatter/test_frontmatter.py
           python -B -X warn_default_encoding -W error::EncodingWarning tests/verify/test_verify_package.py
           python -B -X warn_default_encoding -W error::EncodingWarning tests/scripts/test_skill_scripts.py
+          python -B -X warn_default_encoding -W error::EncodingWarning tests/zip/test_build_repository_zip.py
 
       - name: Run the continuity self-test
         run: >-

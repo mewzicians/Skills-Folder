@@ -30,7 +30,7 @@ tests, mirrors, constraints, and release gates.
 | Development | `game-implement`, `game-debug` |
 | Player experience | `game-ux-audit`, `music-composer` |
 | Quality | `game-qa-cleanup`, `game-full-verification` |
-| Release | `game-github-package` |
+| Release | `game-release` |
 | Agent tooling | `game-context-continuity`, `game-skill-auditor` |
 
 ## Quick Start
@@ -86,7 +86,8 @@ The release package is checked for:
 - strict static-audit findings;
 - continuity and auditor adversarial self-tests;
 - backup-preserving installation;
-- deterministic archive inventory; and
+- an on-demand archive builder that fails closed and reports a reproducible
+  content digest; and
 - extraction and clean installation from the archive.
 
 The GitHub workflow runs the package verifier, the portable frontmatter
