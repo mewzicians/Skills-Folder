@@ -4,7 +4,8 @@
 Checks skill structure, portable frontmatter (docs/SKILL_SCHEMA.md), the
 tracked-text policy, public-term hygiene, generated debris inside skills,
 symbolic links that do not resolve to a file, intentionally duplicated files,
-which must stay byte-for-byte equal, the description and body budgets, and
+which must stay byte-for-byte equal and present in every skill not exempt
+from carrying one, the description and body budgets, and
 the neutrality lint, which reports text that ties the suite to one author or
 machine. Inside a git checkout the inventory comes from git, so git-ignored
 files are skipped; elsewhere, such as an extracted archive, every file is
@@ -74,9 +75,15 @@ GENERATED_COPIES = {
     "skills/game-skill-auditor/scripts/skill_frontmatter.py": "tools/lib/skill_frontmatter.py",
 }
 COPY_HEADER = "# Generated copy of {source}. Edit that file, then recopy it below this line.\n"
-# Files that must stay byte-for-byte identical to one another. A pattern's
-# '*' matches one path part.
-IDENTICAL_GROUPS = ("skills/*/references/project-profile.md",)
+# Files that must stay byte-for-byte identical to one another, as
+# {pattern: skills exempt from carrying one}. The pattern's one '*' stands for
+# a skill folder. Every other skill must carry a copy, so deleting one, or
+# adding a skill without one, fails; an exempt skill that gains one fails too,
+# so the exemption stays exact.
+IDENTICAL_GROUPS = {
+    # The auditor audits skills rather than a game, so it has no profile router.
+    "skills/*/references/project-profile.md": frozenset({"game-skill-auditor"}),
+}
 
 # Budgets (docs/SKILL_SCHEMA.md, "Budgets"). Hosts list every description, so
 # each one and their sum are capped in characters. A body's token estimate is
@@ -338,9 +345,28 @@ def matches_parts(path: str, pattern: str) -> bool:
     )
 
 
-def check_identical(root: Path, files: set[str], problems: list[Problem]) -> None:
-    """Report each copy that differs from the version most copies share."""
-    for pattern in IDENTICAL_GROUPS:
+def check_identical(root: Path, files: set[str], skills: list[str], problems: list[Problem]) -> None:
+    """Report a missing or unexpected copy, and each copy that differs from the version most share."""
+    for pattern, exempt in IDENTICAL_GROUPS.items():
+        for name in skills:
+            expected = pattern.replace("*", name, 1)
+            if name not in exempt and expected not in files:
+                problems.append(
+                    Problem(
+                        "IDENTICAL_MISSING",
+                        expected,
+                        f"is missing; every skill except {', '.join(sorted(exempt)) or 'none'} "
+                        f"carries an identical copy of {pattern}.",
+                    )
+                )
+            elif name in exempt and expected in files:
+                problems.append(
+                    Problem(
+                        "IDENTICAL_UNEXPECTED",
+                        expected,
+                        f"exists, but {name} is exempt from {pattern}; remove the copy or the exemption.",
+                    )
+                )
         group = sorted(path for path in files if matches_parts(path, pattern))
         contents = {path: (root / path).read_bytes() for path in group}
         counts = Counter(contents.values())
@@ -596,7 +622,7 @@ def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
     for name in skills:
         check_skill(root, name, fileset, schema, problems)
     check_copies(root, fileset, problems)
-    check_identical(root, fileset, problems)
+    check_identical(root, fileset, skills, problems)
     budgets = check_budgets(root, skills, fileset, schema, problems)
     for path in files:
         if is_debris(path):

@@ -267,6 +267,27 @@ class FilesystemInventoryTest(unittest.TestCase):
         )
         self.assertIn("skills/game-balance-lab/references/project-profile.md", payload["problems"][0]["message"])
 
+    def test_every_skill_but_the_auditor_carries_the_router(self) -> None:
+        router = "references/project-profile.md"
+        (self.root / "skills" / "game-ux-audit" / router).unlink()
+        shutil.copyfile(
+            self.root / "skills" / "game-plan" / router, self.root / "skills" / "game-skill-auditor" / router
+        )
+        newcomer = self.root / "skills" / "game-newcomer"
+        shutil.copytree(self.root / "skills" / "game-plan", newcomer)
+        (newcomer / router).unlink()
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        found = {(code, path) for code, path in codes_by_path(payload) if code.startswith("IDENTICAL_")}
+        self.assertEqual(
+            found,
+            {
+                ("IDENTICAL_MISSING", f"skills/game-ux-audit/{router}"),
+                ("IDENTICAL_MISSING", f"skills/game-newcomer/{router}"),
+                ("IDENTICAL_UNEXPECTED", f"skills/game-skill-auditor/{router}"),
+            },
+        )
+
     def test_missing_files_and_prompts(self) -> None:
         (self.root / "skills" / "game-ux-audit" / "agents" / "openai.yaml").unlink()
         prompt = self.root / "skills" / "game-qa-cleanup" / "agents" / "openai.yaml"

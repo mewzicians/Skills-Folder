@@ -7,8 +7,9 @@ enough. Neither step changes this repository.
 ## 1. Add A Project Profile
 
 Copy `templates/GAME_PROJECT_PROFILE.template.md` into the game repository as
-`GAME_PROJECT_PROFILE.md` and fill in its fields. Every generic skill reads it
-through its `references/project-profile.md`.
+`GAME_PROJECT_PROFILE.md` and fill in its fields. Every generic skill except
+`game-skill-auditor`, which audits skills rather than a game, reads it through
+its `references/project-profile.md`.
 
 The profile holds pointers: repository-relative paths, status labels,
 commands, and yes-or-no answers. Rules stay in the files it points to, and the
