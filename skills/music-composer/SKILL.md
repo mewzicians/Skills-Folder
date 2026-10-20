@@ -1,6 +1,6 @@
 ---
 name: music-composer
-description: Compose, critique, revise, arrange, produce, research, and plan emotionally purposeful music with disciplined self-review and listening-based iteration. Use when Codex is asked about melodies, motifs, leitmotifs, harmony, rhythm, form, orchestration, sound design, mixing, songs, scores, game music, adaptive music, soundtrack identity, musical references, audition prototypes, improving a durable music guide, what musical direction should come next, or reconsidering its recommendations with the judgment of a great composer.
+description: Compose, critique, arrange, produce, and plan purposeful music through listening-based iteration. Use when the user asks about melody, motifs, harmony, rhythm, form, orchestration, sound design, mixing, game or adaptive music, soundtrack identity, auditions, or what musical direction comes next.
 ---
 
 # Music Composer

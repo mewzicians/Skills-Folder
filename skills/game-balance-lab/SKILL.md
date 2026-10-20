@@ -3,7 +3,7 @@ name: game-balance-lab
 description: Analyze game balance with rules-faithful simulation, legal policy audits, telemetry, ablations, uncertainty, and human evidence. Use for difficulty, win rates, economies, progression curves, builds, content power, encounters, rewards, or whether a mechanic is too strong or weak.
 ---
 
-# Game Balance Lab
+# Balance Sim Lab
 
 Read repository guidance, [references/project-profile.md](references/project-profile.md), current implementation, decision status, and relevant playtest evidence. Record the exact candidate version and label proposed values as experiments.
 

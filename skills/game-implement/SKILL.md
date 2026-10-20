@@ -1,6 +1,6 @@
 ---
 name: game-implement
-description: Implement approved game features and fixes end to end across logic, UI, content, persistence, tests, documentation, and release artifacts. Use when the user asks to build, wire up, apply, or ship an approved game change.
+description: Implement approved game features and fixes end to end across logic, UI, content, persistence, tests, documentation, and maintained deliverables. Use when the user asks to build, wire up, apply, or finish an approved game change.
 ---
 
 # Game Implement

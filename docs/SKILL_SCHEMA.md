@@ -64,8 +64,8 @@ python -X utf8 path/to/quick_validate.py path/to/skill
 | Claude Code-only keys | rejected | warning | `when_to_use`, `argument-hint`, `arguments`, `disable-model-invocation`, `user-invocable`, `disallowed-tools`, `model`, `effort`, `context`, `agent`, `background`, `hooks`, `paths`, `shell`. |
 | Any other key | rejected | warning | |
 
-Separately, a budget gate added later in v1.1 caps each description at 300
-characters. The 1,024-character limit above comes from the specification.
+Separately, the budget gate below caps each description at 300 characters.
+The 1,024-character limit above comes from the specification.
 
 ## Values
 
@@ -172,9 +172,31 @@ it until trigger data shows a problem. Claude Code still lists every skill, so
 its description budget counts explicit-only skills too.
 
 The explicit-only skills are `game-release` (the packaging skill),
-`game-qa-cleanup`, and `game-full-verification`. `game-release` sets the
-policy; the other two gain it in a later v1.1 step. Each new skill is
-classified when it ships.
+`game-qa-cleanup`, and `game-full-verification`. Each sets the policy, and
+each description says "Use when the user explicitly asks to ..." or "Use when
+the user explicitly asks for ...". Each new skill is classified when it ships.
+
+## Budgets
+
+Hosts list every skill's description in the agent's context, and each body
+loads whenever its skill runs, so `tools/verify_package.py` fails when:
+
+- a description is longer than 300 characters (`DESCRIPTION_BUDGET`);
+- all descriptions together are longer than 3,600 characters
+  (`DESCRIPTION_TOTAL`); or
+- a body's estimated tokens exceed its cap (`BODY_BUDGET`): 2,500 for
+  `game-skill-auditor`, 2,000 for `music-composer` and
+  `game-context-continuity`, and 1,200 for every other skill.
+
+A body is everything after the closing `---`. Its estimate is its characters
+divided by 4, rounded up. That is rough for any one tokenizer, but stable
+enough to compare skills with one another and with their caps. When a body
+outgrows its cap, move detail into an on-demand reference linked by one
+routing line. `--budgets` prints every skill's figures:
+
+```text
+python -B tools/verify_package.py --budgets
+```
 
 ## Relationship To Other Checks
 

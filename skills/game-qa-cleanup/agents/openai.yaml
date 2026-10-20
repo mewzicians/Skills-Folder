@@ -1,4 +1,6 @@
 interface:
   display_name: "Game QA Cleanup"
   short_description: "Reconcile and synchronize project truth"
-  default_prompt: "Use $game-qa-cleanup to audit and synchronize the game project guidance, decisions, handoffs, mirrors, manifests, skills, and packages without changing gameplay."
+  default_prompt: "Use $game-qa-cleanup to audit and reconcile this game's guidance, decisions, handoffs, mirrors, and manifests without changing gameplay or removing files on its own."
+policy:
+  allow_implicit_invocation: false

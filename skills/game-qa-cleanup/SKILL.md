@@ -1,6 +1,6 @@
 ---
 name: game-qa-cleanup
-description: Audit, rewrite, and synchronize a game's active documentation, guidance, handoffs, mirrors, manifests, skills, and release packages without changing gameplay. Use to remove stale material, reconcile project truth, repair documentation drift, or prepare consistent handoffs.
+description: Audit and reconcile a game's active documentation, guidance, handoffs, mirrors, manifests, and skill metadata without changing gameplay or removing files on its own. Use when the user explicitly asks to run QA cleanup, reconcile project truth, repair documentation drift, or prepare handoffs.
 ---
 
 # Game QA Cleanup

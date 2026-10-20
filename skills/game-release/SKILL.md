@@ -1,6 +1,6 @@
 ---
 name: game-release
-description: Synchronize and byte-verify a game's maintained release deliverables, such as a public repository mirror, and build an archive only on request. Use when preparing, refreshing, validating, or handing off a public game repository, release archive, upload bundle, or Pages-ready package.
+description: Synchronize and byte-verify a game's maintained release deliverables, such as a public repository mirror, run pre-publish checks, and build an archive only on request. Use when the user explicitly asks to prepare, refresh, validate, or hand off a public release or upload.
 ---
 
 # Game Release

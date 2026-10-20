@@ -1,6 +1,6 @@
 ---
 name: game-context-continuity
-description: Preserve, recover, and verify continuity for complex game-development work across context compaction, interruptions, and agent handoffs. Use when a game task has material design decisions, implementation state, test evidence, assets, builds, or release work that another context must resume accurately.
+description: Preserve, recover, and verify continuity for complex game-development work across context compaction, interruptions, and agent handoffs. Use when another context must resume material decisions, code, tests, or release state, or to recover after compaction or a handoff; not for short tasks.
 ---
 
 # Game Context Continuity

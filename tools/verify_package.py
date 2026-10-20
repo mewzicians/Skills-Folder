@@ -3,8 +3,8 @@
 
 Checks skill structure, portable frontmatter (docs/SKILL_SCHEMA.md), the
 tracked-text policy, public-term hygiene, generated debris inside skills,
-symbolic links that do not resolve to a file, and intentionally duplicated
-files, which must stay byte-for-byte equal.
+symbolic links that do not resolve to a file, intentionally duplicated files,
+which must stay byte-for-byte equal, and the description and body budgets.
 Inside a git checkout the inventory comes from git, so git-ignored files are
 skipped; elsewhere, such as an extracted archive, every file is checked.
 
@@ -76,6 +76,20 @@ COPY_HEADER = "# Generated copy of {source}. Edit that file, then recopy it belo
 # Files that must stay byte-for-byte identical to one another. A pattern's
 # '*' matches one path part.
 IDENTICAL_GROUPS = ("skills/*/references/project-profile.md",)
+
+# Budgets (docs/SKILL_SCHEMA.md, "Budgets"). Hosts list every description, so
+# each one and their sum are capped in characters. A body's token estimate is
+# its characters divided by CHARS_PER_TOKEN, rounded up: rough, but stable
+# enough to compare one skill body with another and with its cap.
+DESCRIPTION_CAP = 300
+DESCRIPTION_TOTAL_CAP = 3600
+CHARS_PER_TOKEN = 4
+WORKFLOW_BODY_TOKEN_CAP = 1200
+BODY_TOKEN_CAPS = {
+    "game-context-continuity": 2000,
+    "game-skill-auditor": 2500,
+    "music-composer": 2000,
+}
 
 # Neutrality lint (--lint). Every pattern is built from fragments, so this
 # file never contains anything it reports.
@@ -325,6 +339,92 @@ def check_identical(root: Path, files: set[str], problems: list[Problem]) -> Non
                 )
 
 
+def estimated_tokens(text: str) -> int:
+    return -(-len(text) // CHARS_PER_TOKEN)
+
+
+def skill_body(text: str) -> str | None:
+    """The text after the closing frontmatter delimiter, or None without one."""
+    lines = text.split("\n")
+    if lines[0].rstrip(" \t") != "---":
+        return None
+    for index in range(1, len(lines)):
+        if lines[index].rstrip(" \t") == "---":
+            return "\n".join(lines[index + 1 :])
+    return None
+
+
+def check_budgets(
+    root: Path, skills: list[str], files: set[str], schema: ModuleType, problems: list[Problem]
+) -> dict[str, object]:
+    """Cap each description, their total, and each body's estimated tokens."""
+    rows: dict[str, dict[str, int]] = {}
+    total = 0
+    for name in skills:
+        skill_md = f"skills/{name}/SKILL.md"
+        if skill_md not in files:
+            continue
+        data = (root / skill_md).read_bytes()
+        description = schema.validate_text(data, folder=name).frontmatter.get("description")
+        length = len(description) if isinstance(description, str) else 0
+        total += length
+        text = data.decode("utf-8", "replace").replace("\r\n", "\n")
+        body = skill_body(text)
+        tokens = estimated_tokens(body) if body is not None else 0
+        cap = BODY_TOKEN_CAPS.get(name, WORKFLOW_BODY_TOKEN_CAP)
+        rows[name] = {"description_characters": length, "body_estimated_tokens": tokens, "body_token_cap": cap}
+        if length > DESCRIPTION_CAP:
+            line = next(
+                (number for number, row in enumerate(text.split("\n"), 1) if row.startswith("description:")),
+                None,
+            )
+            problems.append(
+                Problem(
+                    "DESCRIPTION_BUDGET",
+                    skill_md,
+                    f"the description has {length} characters; the cap is {DESCRIPTION_CAP}.",
+                    line,
+                )
+            )
+        if tokens > cap:
+            problems.append(
+                Problem(
+                    "BODY_BUDGET",
+                    skill_md,
+                    f"the body is about {tokens} estimated tokens (characters / {CHARS_PER_TOKEN}); "
+                    f"the cap is {cap}. Move detail into an on-demand reference.",
+                )
+            )
+    if total > DESCRIPTION_TOTAL_CAP:
+        problems.append(
+            Problem(
+                "DESCRIPTION_TOTAL",
+                "skills",
+                f"descriptions total {total} characters; the suite cap is {DESCRIPTION_TOTAL_CAP}.",
+            )
+        )
+    return {
+        "description_cap": DESCRIPTION_CAP,
+        "description_total": total,
+        "description_total_cap": DESCRIPTION_TOTAL_CAP,
+        "chars_per_token": CHARS_PER_TOKEN,
+        "skills": rows,
+    }
+
+
+def render_budgets(budgets: dict[str, object]) -> list[str]:
+    rows = budgets["skills"]
+    width = max((len(name) for name in rows), default=5)
+    lines = [f"{'skill':<{width}}  description  body tokens"]
+    for name, row in rows.items():
+        lines.append(
+            f"{name:<{width}}  {row['description_characters']:>4}/{budgets['description_cap']:<6}"
+            f"  {row['body_estimated_tokens']:>4}/{row['body_token_cap']}"
+        )
+    lines.append(f"{'total':<{width}}  {budgets['description_total']:>4}/{budgets['description_total_cap']}")
+    return lines
+
+
 def line_at(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
@@ -442,6 +542,7 @@ def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
         check_skill(root, name, fileset, schema, problems)
     check_copies(root, fileset, problems)
     check_identical(root, fileset, problems)
+    budgets = check_budgets(root, skills, fileset, schema, problems)
     for path in files:
         if is_debris(path):
             problems.append(Problem("DEBRIS", path, "is generated debris; delete it before packaging."))
@@ -451,7 +552,7 @@ def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
         check_forbidden(path, data, problems)
         if not is_binary(path, data):
             check_text(path, data, problems)
-    summary = {"root": str(root), "inventory": mode, "files": len(files), "skills": skills}
+    summary = {"root": str(root), "inventory": mode, "files": len(files), "skills": skills, "budgets": budgets}
     return problems, summary
 
 
@@ -469,6 +570,11 @@ def main(argv: list[str] | None = None) -> int:
             "names, and committed continuity ledgers"
         ),
     )
+    parser.add_argument(
+        "--budgets",
+        action="store_true",
+        help="also print each skill's description length and estimated body tokens against its cap",
+    )
     args = parser.parse_args(argv)
     root = args.root.resolve()
     if not root.is_dir():
@@ -479,6 +585,16 @@ def main(argv: list[str] | None = None) -> int:
     else:
         for problem in problems:
             print(problem.render())
+        if not args.lint:
+            budgets = summary["budgets"]
+            if args.budgets:
+                for line in render_budgets(budgets):
+                    print(line)
+            print(
+                f"Budgets: descriptions total {budgets['description_total']} of "
+                f"{budgets['description_total_cap']} characters, at most {budgets['description_cap']} each; "
+                "--budgets lists every skill."
+            )
         verdict = "FAIL" if problems else "PASS"
         scope = "neutrality lint" if args.lint else f"{len(summary['skills'])} skills"
         print(

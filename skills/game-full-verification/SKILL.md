@@ -1,6 +1,6 @@
 ---
 name: game-full-verification
-description: Perform exhaustive evidence-based verification of a complete game release candidate across requirements, implementation, rules, determinism, UI, accessibility, persistence, performance, packaging, edge cases, and balance evidence. Use for ship readiness or complete approved-feature verification.
+description: Exhaustively verify a complete game release candidate with evidence across requirements, rules, determinism, UI, accessibility, persistence, performance, packaging, and balance. Use when the user explicitly asks for full verification, ship readiness, or complete approved-feature verification.
 ---
 
 # Game Full Verification

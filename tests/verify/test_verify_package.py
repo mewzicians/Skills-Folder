@@ -285,6 +285,102 @@ class FilesystemInventoryTest(unittest.TestCase):
         self.assertIn(("SKILL_MD_MISSING", "skills/orphan"), found)
 
 
+def set_description(root: Path, name: str, description: str) -> None:
+    skill = root / "skills" / name / "SKILL.md"
+    lines = skill.read_text(encoding="utf-8").split("\n")
+    assert lines[2].startswith("description: "), lines[2]
+    lines[2] = "description: " + description
+    skill.write_text("\n".join(lines), encoding="utf-8", newline="\n")
+
+
+def description_of_length(length: int) -> str:
+    text = "Use when a budget test needs a description of an exact length. "
+    return text + "x" * (length - len(text))
+
+
+class BudgetTest(unittest.TestCase):
+    """Descriptions, their total, and body token estimates are capped."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="verify-budgets-")
+        self.root = copy_package(Path(self.temp.name) / "package")
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_the_package_is_within_budget(self) -> None:
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 0, payload["problems"])
+        budgets = payload["budgets"]
+        self.assertEqual(sorted(budgets["skills"]), payload["skills"])
+        self.assertLessEqual(budgets["description_total"], budgets["description_total_cap"])
+        for name, row in budgets["skills"].items():
+            with self.subTest(skill=name):
+                self.assertLessEqual(row["description_characters"], budgets["description_cap"])
+                self.assertLessEqual(row["body_estimated_tokens"], row["body_token_cap"])
+
+    def test_a_301_character_description_fails(self) -> None:
+        set_description(self.root, "game-debug", description_of_length(301))
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            [(item["code"], item["path"], item["line"]) for item in payload["problems"]],
+            [("DESCRIPTION_BUDGET", "skills/game-debug/SKILL.md", 3)],
+        )
+        set_description(self.root, "game-debug", description_of_length(300))
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(payload["problems"], [])
+        self.assertEqual(returncode, 0)
+
+    def test_the_suite_total_and_body_caps(self) -> None:
+        _, payload = run_verifier(self.root)
+        budgets = payload["budgets"]
+        room = budgets["description_total_cap"] - budgets["description_total"]
+        extras = room // budgets["description_cap"] + 1
+        for number in range(extras):
+            name = f"budget-extra-{number}"
+            shutil.copytree(self.root / "skills" / "game-debug", self.root / "skills" / name)
+            skill = self.root / "skills" / name / "SKILL.md"
+            skill.write_text(
+                skill.read_text(encoding="utf-8").replace("name: game-debug", f"name: {name}", 1),
+                encoding="utf-8",
+                newline="\n",
+            )
+            set_description(self.root, name, description_of_length(budgets["description_cap"]))
+            metadata = self.root / "skills" / name / "agents" / "openai.yaml"
+            metadata.write_text(
+                metadata.read_text(encoding="utf-8").replace("$game-debug", f"${name}"),
+                encoding="utf-8",
+                newline="\n",
+            )
+        plan = self.root / "skills" / "game-plan" / "SKILL.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8") + "\nPadding the body past its cap.\n" * 200,
+            encoding="utf-8",
+            newline="\n",
+        )
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            codes_by_path(payload),
+            {("DESCRIPTION_TOTAL", "skills"), ("BODY_BUDGET", "skills/game-plan/SKILL.md")},
+            payload["problems"],
+        )
+        self.assertGreater(payload["budgets"]["description_total"], budgets["description_total_cap"])
+        completed = subprocess.run(
+            [sys.executable, *CHILD_FLAGS, str(VERIFIER), "--root", str(self.root), "--budgets"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        self.assertIn("budget-extra-0", completed.stdout)
+        self.assertRegex(completed.stdout, r"game-plan\s+\d+/300\s+\d+/1200")
+
+
 # Planted lint cases, built from fragments so this file never holds a hit.
 NICK = "ch" + "ud"
 PLANTED_LINES = [

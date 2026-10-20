@@ -85,6 +85,7 @@ The release package is checked for:
 
 - valid skill structure and matching metadata;
 - project-neutral language and portable paths;
+- description and body size budgets;
 - strict static-audit findings;
 - continuity and auditor adversarial self-tests;
 - backup-preserving installation;
