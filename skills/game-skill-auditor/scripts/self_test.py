@@ -7,6 +7,7 @@ import argparse
 import copy
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -267,7 +268,7 @@ def plant_mutation(mutated_package: Path, category: str) -> tuple[list[str], str
         expected = "The audit must report missing required reading and repair the source route."
     elif category == "boundary":
         path = skill_path
-        old = "Do not edit the target during an\naudit-only request."
+        old = "Do not edit the target during an audit-only request."
         new = "Edit the target during an audit-only request."
         description = "Reverse the audit-only preservation boundary."
         expected = "The audit must report the unsafe side effect and restore preservation."
@@ -286,9 +287,12 @@ def plant_mutation(mutated_package: Path, category: str) -> tuple[list[str], str
     else:
         raise ValueError(f"Unsupported mutation category: {category}")
     text = path.read_text(encoding="utf-8")
-    if old not in text:
+    # Match the anchor across any run of whitespace, so rewrapping the
+    # target's Markdown cannot hide the mutation source.
+    anchor = re.compile(r"\s+".join(re.escape(word) for word in old.split()))
+    if anchor.search(text) is None:
         raise ValueError(f"Mutation source text not found for {category}: {old}")
-    write_text_atomic(path, text.replace(old, new, 1))
+    write_text_atomic(path, anchor.sub(lambda _match: new, text, count=1))
     return [path.relative_to(mutated_package).as_posix()], description, expected
 
 

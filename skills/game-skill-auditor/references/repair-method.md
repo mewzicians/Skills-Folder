@@ -1,7 +1,7 @@
 # Repair Method
 
-Read this before editing a target skill. Edit only when the user requests or
-approves repair.
+Read this before proposing repair text for a target skill or editing one.
+Edit only when the user requests or approves repair.
 
 ## Classify First
 

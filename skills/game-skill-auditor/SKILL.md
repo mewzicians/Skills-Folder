@@ -20,8 +20,7 @@ instruction, model limitation, or unclear user expectation.
 Choose a quick check, full audit, repair, or regression; read
 [references/audit-modes.md](references/audit-modes.md) for each mode and the
 full-audit completion gate. Default to a full audit when the user asks to find
-gaps or judge readiness. Do not edit the target during an
-audit-only request.
+gaps or judge readiness. Do not edit the target during an audit-only request.
 
 ## Load The Evidence
 
@@ -88,8 +87,8 @@ contexts when permitted. If separation cannot run, cap the verdict below
 
 ## Run Deterministic Checks
 
-From the auditor's folder, run the bundled structural validator, which needs
-only the Python standard library, then the strict static audit:
+From the auditor's folder, run the bundled standard-library structural
+validator, then the strict static audit:
 
 ```text
 python -B scripts/validate_skill.py <path-to-skill>
@@ -110,12 +109,9 @@ recording evidence.
 Because the description is the primary trigger surface, test it independently
 from the body.
 
-Create a prompt set containing:
-
-- at least three clear requests that should trigger;
-- two paraphrased or indirect requests that should trigger;
-- two neighboring requests that should not trigger; and
-- one ambiguous boundary request.
+Create a prompt set of at least three clear and two paraphrased or indirect
+requests that should trigger, two neighboring requests that should not, and
+one ambiguous boundary request.
 
 Check for both false negatives and false positives. Ensure the description says
 what the skill does and when to use it without trying to encode the entire
@@ -183,9 +179,9 @@ as open decisions.
 
 Edit only when the user requests or approves repair. Classify every capability
 change first, apply only mission-preserving enablement the repair request
-covers, and return directional evolution as a recommendation. Follow
-[references/repair-method.md](references/repair-method.md) for the repair
-steps and their evidence.
+covers, and return directional evolution as a recommendation. Read
+[references/repair-method.md](references/repair-method.md) before proposing
+repair text or editing; it holds the steps and their evidence.
 
 ## Calibrate Readiness
 
@@ -201,7 +197,8 @@ awarding or reporting any level.
 For a full, repair, or regression audit:
 
 - lead with findings ordered by severity when defects exist;
-- summarize the seven-clause behavioral contract;
+- state the Skill Mission and non-goals, and summarize the seven-clause
+  behavioral contract;
 - provide a requirement matrix with `Requirement`, `Status`, `Evidence`, and
   `Gap or Repair`;
 - use only `Pass`, `Partial`, `Fail`, or `Unknown` for requirement status;
