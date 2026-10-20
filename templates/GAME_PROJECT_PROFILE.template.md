@@ -76,3 +76,5 @@ profile. A blank field means the skill's generic default.
 - Balance metrics:
 - Exceptional systems:
 - Release gates:
+- Music guide (general craft method):
+- Music brief and approval records:
