@@ -8,6 +8,9 @@ files, which must stay byte-for-byte equal.
 Inside a git checkout the inventory comes from git, so git-ignored files are
 skipped; elsewhere, such as an extracted archive, every file is checked.
 
+--lint runs only the neutrality lint instead, which reports text that ties the
+suite to one author or machine. It is not yet part of the default gate.
+
 Exit codes: 0 pass, 1 problems found, 2 usage error, 3 internal error.
 Standard library only.
 """
@@ -73,6 +76,36 @@ COPY_HEADER = "# Generated copy of {source}. Edit that file, then recopy it belo
 # Files that must stay byte-for-byte identical to one another. A pattern's
 # '*' matches one path part.
 IDENTICAL_GROUPS = ("skills/*/references/project-profile.md",)
+
+# Neutrality lint (--lint). Every pattern is built from fragments, so this
+# file never contains anything it reports.
+GRANT_PHRASES = (
+    ("has", "stand" + "ing", "appro" + "val", "to"),
+    ("has", "stand" + "ing", "permis" + "sion", "to"),
+    ("gra" + "nts", "stand" + "ing"),
+    ("The", "user", "gra" + "nts"),
+    ("This", "local", "instal" + "lation"),
+    ("permis" + "sion", "as", "autho" + "rity"),
+)
+# Words may wrap onto the next line, so any whitespace separates them.
+GRANT_FORM = re.compile(
+    "|".join(r"\b" + r"\s+".join(map(re.escape, words)) + r"\b" for words in GRANT_PHRASES),
+    re.IGNORECASE,
+)
+NEGATION = re.compile(r"\b(?:not|never|no|nobody|none|cannot|without|nor)\b|n't\b", re.IGNORECASE)
+# The profile template's field for pointing at a user's own written grant.
+STANDING_FIELD = re.compile(r"^\s*[-*]\s*" + "Stand" + "ing appro" + r"vals\b", re.IGNORECASE)
+NICKNAME = re.compile(r"\b" + "ch" + "ud" + r"s?\b", re.IGNORECASE)
+USER_PATH = re.compile(
+    r"(?<![A-Za-z0-9])(?i:[A-Za-z]:[\\/]{1,2}" + "us" + r"ers[\\/]{1,2})[^\\/\s\"'`<>]+"
+    + r"|(?<![\w.~-])/(?:" + "Us" + "ers|" + "ho" + r"me)/[A-Za-z0-9._-]+(?=/)"
+)
+EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+ALLOWED_EMAIL_DOMAINS = ("example.com", "example.org", "example.net")
+VAULT_NAME = re.compile(
+    r"(?i:\." + "obsi" + r"dian)\b|\b" + "Wi" + r"ki/|\b" + "In" + r"box/|\b" + "Ho" + r"me\.md\b"
+)
+LEDGER_FILE = "context_" + "continuity*.md"
 
 
 @dataclass(frozen=True)
@@ -292,6 +325,95 @@ def check_identical(root: Path, files: set[str], problems: list[Problem]) -> Non
                 )
 
 
+def line_at(text: str, offset: int) -> int:
+    return text.count("\n", 0, offset) + 1
+
+
+def negated(text: str, start: int) -> bool:
+    """Whether the clause before a phrase negates it, as in 'nobody has ...'."""
+    before = text[max(0, start - 80) : start]
+    clause = re.split(r"[.!?]\s|\n\s*\n", before)[-1]
+    return NEGATION.search(clause) is not None
+
+
+def grant_hits(text: str) -> list[tuple[int, int, str]]:
+    """Grant phrases as (first line, last line, phrases), merging adjacent ones."""
+    spans: list[list[object]] = []
+    for match in GRANT_FORM.finditer(text):
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        line_end = text.find("\n", match.start())
+        line = text[line_start : line_end if line_end >= 0 else len(text)]
+        if STANDING_FIELD.match(line) or negated(text, match.start()):
+            continue
+        phrase = " ".join(match.group(0).split())
+        if spans and not text[spans[-1][1] : match.start()].strip():
+            spans[-1][1] = max(spans[-1][1], match.end())
+            spans[-1][2] = f"{spans[-1][2]} + {phrase}"
+        else:
+            spans.append([match.start(), match.end(), phrase])
+    return [(line_at(text, start), line_at(text, end - 1), phrase) for start, end, phrase in spans]
+
+
+def email_allowed(address: str) -> bool:
+    folded = address.casefold()
+    domain = folded.rsplit("@", 1)[1]
+    return (
+        "noreply" in folded
+        or "no-reply" in folded
+        or folded == "git@" + "github.com"
+        or any(domain == allowed or domain.endswith("." + allowed) for allowed in ALLOWED_EMAIL_DOMAINS)
+    )
+
+
+def lint_text(path: str, text: str, problems: list[Problem]) -> None:
+    for first, last, phrase in grant_hits(text):
+        where = f"lines {first}-{last}" if last > first else f"line {first}"
+        problems.append(
+            Problem("LINT_GRANT_FORM", path, f"reads as self-granted standing permission ({where}: '{phrase}').", first)
+        )
+    simple = (
+        ("LINT_AGENT_NICKNAME", NICKNAME, "uses an author-specific delegated-agent nickname"),
+        ("LINT_USER_PATH", USER_PATH, "contains an absolute user path"),
+        ("LINT_VAULT_NAME", VAULT_NAME, "names a private vault folder or note"),
+    )
+    for code, pattern, message in simple:
+        lines = sorted({line_at(text, match.start()) for match in pattern.finditer(text)})
+        for line in lines:
+            problems.append(Problem(code, path, f"{message}.", line))
+    for match in EMAIL.finditer(text):
+        if not email_allowed(match.group(0)):
+            problems.append(
+                Problem("LINT_PERSONAL_EMAIL", path, "contains a personal email address.", line_at(text, match.start()))
+            )
+
+
+def lint(root: Path) -> tuple[list[Problem], dict[str, object]]:
+    """The neutrality lint: findings for text that ties the suite to one author."""
+    files = git_inventory(root)
+    mode = "git"
+    if files is None:
+        files, mode = walk_inventory(root), "filesystem"
+    problems: list[Problem] = []
+    for path in files:
+        if fnmatch.fnmatchcase(PurePosixPath(path).name.casefold(), LEDGER_FILE):
+            problems.append(Problem("LINT_CONTINUITY_LEDGER", path, "is a continuity ledger; never commit one."))
+        for code, pattern, message in (
+            ("LINT_USER_PATH", USER_PATH, "the path contains an absolute user path."),
+            ("LINT_VAULT_NAME", VAULT_NAME, "the path names a private vault folder or note."),
+            ("LINT_AGENT_NICKNAME", NICKNAME, "the path uses an author-specific nickname."),
+        ):
+            if pattern.search(path):
+                problems.append(Problem(code, path, message))
+        full = root / path
+        if full.is_symlink() and not full.is_file():
+            continue
+        data = full.read_bytes()
+        if not is_binary(path, data):
+            lint_text(path, data.decode("utf-8", "replace"), problems)
+    summary = {"root": str(root), "inventory": mode, "files": len(files), "mode": "lint"}
+    return problems, summary
+
+
 def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
     schema = load_schema()
     files = git_inventory(root)
@@ -338,19 +460,29 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=ROOT, help="package root (default: this repository)")
     parser.add_argument("--json", action="store_true", dest="as_json")
+    parser.add_argument(
+        "--lint",
+        action="store_true",
+        help=(
+            "run only the neutrality lint: self-granted permission, author-specific "
+            "names, absolute user paths, personal email addresses, private vault "
+            "names, and committed continuity ledgers"
+        ),
+    )
     args = parser.parse_args(argv)
     root = args.root.resolve()
     if not root.is_dir():
         parser.error(f"--root is not a directory: {root}")
-    problems, summary = verify(root)
+    problems, summary = lint(root) if args.lint else verify(root)
     if args.as_json:
         print(json.dumps({**summary, "problems": [item.as_dict() for item in problems]}, indent=2))
     else:
         for problem in problems:
             print(problem.render())
         verdict = "FAIL" if problems else "PASS"
+        scope = "neutrality lint" if args.lint else f"{len(summary['skills'])} skills"
         print(
-            f"{verdict}: {len(problems)} problem(s); {len(summary['skills'])} skills; "
+            f"{verdict}: {len(problems)} problem(s); {scope}; "
             f"{summary['files']} files checked (inventory: {summary['inventory']})."
         )
     return 1 if problems else 0

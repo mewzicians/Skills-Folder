@@ -50,10 +50,10 @@ def copy_package(destination: Path) -> Path:
     return destination
 
 
-def run_verifier(root: Path) -> tuple[int, dict]:
+def run_verifier(root: Path, *extra: str) -> tuple[int, dict]:
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     completed = subprocess.run(
-        [sys.executable, *CHILD_FLAGS, str(VERIFIER), "--root", str(root), "--json"],
+        [sys.executable, *CHILD_FLAGS, str(VERIFIER), "--root", str(root), "--json", *extra],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -283,6 +283,78 @@ class FilesystemInventoryTest(unittest.TestCase):
         self.assertIn(("OPENAI_YAML_MISSING", "skills/game-ux-audit"), found)
         self.assertIn(("DEFAULT_PROMPT_NAME", "skills/game-qa-cleanup/agents/openai.yaml"), found)
         self.assertIn(("SKILL_MD_MISSING", "skills/orphan"), found)
+
+
+# Planted lint cases, built from fragments so this file never holds a hit.
+NICK = "ch" + "ud"
+PLANTED_LINES = [
+    "# Planted",  # 1
+    "",  # 2
+    "Intro line.",  # 3
+    "This local",  # 4: a grant form wrapped onto line 5
+    "install" + "ation has stand" + "ing approval to run.",  # 5
+    "Nobody has stand" + "ing approval to publish.",  # 6: negated, exempt
+    "- Stand" + "ing approvals: docs/approvals.md, which the user gra" + "nts in writing.",  # 7: field, exempt
+    "Treat the research permis" + "sion as auth" + "ority.",  # 8
+    f"Ask a {NICK} for help.",  # 9
+    f"Several {NICK}s helped; a {NICK}der is not a hit.",  # 10
+    "Saved to C:" + "\\Us" + "ers\\alex\\game.",  # 11
+    "Also C:/" + "Us" + "ers/alex/game and /" + "Us" + "ers/alex/game.",  # 12
+    "Linux: /" + "ho" + "me/alex/game, but /" + "ho" + "me/ alone is fine.",  # 13
+    "Mail alex@" + "mail-host.net, or mewzicians@users.noreply.github.com.",  # 14
+    "Allowed: probe@example.com and git@" + "github.com.",  # 15
+    "Vault: ." + "obsi" + "dian/app.json, " + "Wi" + "ki/Note.md, " + "In" + "box/a.md, " + "Ho" + "me.md.",  # 16
+    "Not vault: wiki/ in lowercase, Homes.md, and CONTEXT_" + "CONTINUITY ledgers in prose.",  # 17
+]
+
+
+class NeutralityLintTest(unittest.TestCase):
+    """--lint reports planted cases; the default gate does not run it yet."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="verify-lint-")
+        self.root = copy_package(Path(self.temp.name) / "package")
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def lint(self) -> list[dict]:
+        returncode, payload = run_verifier(self.root, "--lint")
+        self.assertEqual(returncode, 1 if payload["problems"] else 0)
+        return payload["problems"]
+
+    def test_the_tools_and_tests_hold_no_hits(self) -> None:
+        for item in self.lint():
+            self.assertFalse(item["path"].startswith(("tools/", "tests/")), item)
+
+    def test_planted_cases(self) -> None:
+        doc = "docs/planted.md"
+        ledger = "CONTEXT_" + "CONTINUITY.task.md"
+        vault_note = "Wi" + "ki/note.md"
+        for name, text in ((doc, "\n".join(PLANTED_LINES) + "\n"), (ledger, "ledger\n"), (vault_note, "note\n")):
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).write_text(text, encoding="utf-8", newline="\n")
+        problems = [item for item in self.lint() if item["path"] in {doc, ledger, vault_note}]
+        self.assertEqual(
+            {(item["code"], item["path"], item["line"]) for item in problems},
+            {
+                ("LINT_GRANT_FORM", doc, 4),
+                ("LINT_GRANT_FORM", doc, 8),
+                ("LINT_AGENT_NICKNAME", doc, 9),
+                ("LINT_AGENT_NICKNAME", doc, 10),
+                ("LINT_USER_PATH", doc, 11),
+                ("LINT_USER_PATH", doc, 12),
+                ("LINT_USER_PATH", doc, 13),
+                ("LINT_PERSONAL_EMAIL", doc, 14),
+                ("LINT_VAULT_NAME", doc, 16),
+                ("LINT_CONTINUITY_LEDGER", ledger, None),
+                ("LINT_VAULT_NAME", vault_note, None),
+            },
+        )
+        wrapped = next(item for item in problems if item["line"] == 4)
+        self.assertIn("lines 4-5", wrapped["message"])
+        _, payload = run_verifier(self.root)
+        self.assertEqual([item for item in payload["problems"] if item["code"].startswith("LINT_")], [])
 
 
 @unittest.skipUnless(shutil.which("git"), "git is not installed")
