@@ -219,6 +219,10 @@ class FilesystemInventoryTest(unittest.TestCase):
                 ("NO_SKILLS", "skills"),
                 # The auditor's generated copy went with the skills.
                 ("COPY_MISSING", "skills/game-skill-auditor/scripts/skill_frontmatter.py"),
+                # So did the skills the verifier knows are explicit-only.
+                ("EXPLICIT_ONLY_MISSING", "skills/game-full-verification"),
+                ("EXPLICIT_ONLY_MISSING", "skills/game-qa-cleanup"),
+                ("EXPLICIT_ONLY_MISSING", "skills/game-release"),
             },
         )
 
@@ -317,6 +321,47 @@ class FilesystemInventoryTest(unittest.TestCase):
                 ("IDENTICAL_UNEXPECTED", f"skills/game-skill-auditor/{router}"),
             },
         )
+
+    def test_explicit_only_skills_keep_their_policy_and_wording(self) -> None:
+        skills = self.root / "skills"
+        release = skills / "game-release" / "agents" / "openai.yaml"
+        release.write_text(
+            release.read_text(encoding="utf-8").replace(
+                "allow_implicit_invocation: false", "allow_implicit_invocation: true"
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        verification = skills / "game-full-verification" / "agents" / "openai.yaml"
+        text = verification.read_text(encoding="utf-8")
+        # A commented-out switch, or one outside the policy block, does not count.
+        verification.write_text(
+            text[: text.index("policy:")] + "# policy:\n#   allow_implicit_invocation: false\n"
+            "extra:\n  allow_implicit_invocation: false\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        cleanup = skills / "game-qa-cleanup" / "SKILL.md"
+        cleanup.write_text(
+            cleanup.read_text(encoding="utf-8").replace(
+                "Use when the user explicitly asks", "Use when the user asks", 1
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            [(item["code"], item["path"], item["line"]) for item in payload["problems"]],
+            [
+                ("EXPLICIT_ONLY_POLICY", "skills/game-full-verification/agents/openai.yaml", None),
+                ("EXPLICIT_ONLY_WORDING", "skills/game-qa-cleanup/SKILL.md", 3),
+                ("EXPLICIT_ONLY_POLICY", "skills/game-release/agents/openai.yaml", None),
+            ],
+        )
+        shutil.rmtree(skills / "game-release")
+        returncode, payload = run_verifier(self.root)
+        self.assertIn(("EXPLICIT_ONLY_MISSING", "skills/game-release"), codes_by_path(payload))
 
     def test_missing_files_and_prompts(self) -> None:
         (self.root / "skills" / "game-ux-audit" / "agents" / "openai.yaml").unlink()

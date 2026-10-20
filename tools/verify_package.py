@@ -5,9 +5,9 @@ Checks skill structure, portable frontmatter (docs/SKILL_SCHEMA.md), the
 tracked-text policy, public-term hygiene, generated debris inside skills,
 symbolic links that do not resolve to a file, intentionally duplicated files,
 which must stay byte-for-byte equal and present in every skill not exempt
-from carrying one, the description and body budgets, and
-the neutrality lint, which reports text that ties the suite to one author or
-machine. Inside a git checkout the inventory comes from git, so git-ignored
+from carrying one, the explicit-only skills' invocation policy and wording,
+the description and body budgets, and the neutrality lint, which reports text
+that ties the suite to one author or machine. Inside a git checkout the inventory comes from git, so git-ignored
 files are skipped; elsewhere, such as an extracted archive, every file is
 checked.
 
@@ -84,6 +84,14 @@ IDENTICAL_GROUPS = {
     # The auditor audits skills rather than a game, so it has no profile router.
     "skills/*/references/project-profile.md": frozenset({"game-skill-auditor"}),
 }
+
+# Skills with side effects run only when the user names them
+# (docs/SKILL_SCHEMA.md, "Explicit-Only Skills"). Each keeps Codex's switch off
+# in agents/openai.yaml and says so in its description for Claude Code.
+EXPLICIT_ONLY = ("game-full-verification", "game-qa-cleanup", "game-release")
+EXPLICIT_WORDING = "Use when the user explicitly asks"
+TOP_LEVEL_KEY = re.compile(r"^(?P<key>[A-Za-z_][\w-]*):\s*(?:#.*)?$")
+IMPLICIT_OFF = re.compile(r"^\s+allow_implicit_invocation:\s*false\s*(?:#.*)?$")
 
 # Budgets (docs/SKILL_SCHEMA.md, "Budgets"). Hosts list every description, so
 # each one and their sum are capped in characters. A body's token estimate is
@@ -307,6 +315,59 @@ def check_skill(root: Path, name: str, files: set[str], schema: ModuleType, prob
     number, prompt = prompts[0]
     if not re.search(re.escape(f"${name}") + r"(?![a-z0-9-])", prompt):
         problems.append(Problem("DEFAULT_PROMPT_NAME", openai_yaml, f"default_prompt does not name ${name}.", number))
+
+
+def implicit_invocation_disabled(text: str) -> bool:
+    """Whether agents/openai.yaml sets policy.allow_implicit_invocation: false."""
+    in_policy = False
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[0].isspace():
+            match = TOP_LEVEL_KEY.match(line)
+            in_policy = match is not None and match.group("key") == "policy"
+        elif in_policy and IMPLICIT_OFF.match(line):
+            return True
+    return False
+
+
+def check_explicit_only(root: Path, files: set[str], schema: ModuleType, problems: list[Problem]) -> None:
+    """Each explicit-only skill keeps its policy switch off and its explicit wording."""
+    for name in EXPLICIT_ONLY:
+        skill_md = f"skills/{name}/SKILL.md"
+        metadata = f"skills/{name}/agents/openai.yaml"
+        if skill_md not in files:
+            problems.append(Problem("EXPLICIT_ONLY_MISSING", f"skills/{name}", "is an explicit-only skill, but it is missing."))
+            continue
+        data = (root / skill_md).read_bytes()
+        description = schema.validate_text(data, folder=name).frontmatter.get("description")
+        if not isinstance(description, str) or EXPLICIT_WORDING not in description:
+            line = next(
+                (
+                    number
+                    for number, row in enumerate(data.decode("utf-8", "replace").split("\n"), 1)
+                    if row.startswith("description:")
+                ),
+                None,
+            )
+            problems.append(
+                Problem(
+                    "EXPLICIT_ONLY_WORDING",
+                    skill_md,
+                    f"is explicit-only, so its description must say \"{EXPLICIT_WORDING} ...\".",
+                    line,
+                )
+            )
+        if metadata in files and not implicit_invocation_disabled(
+            (root / metadata).read_bytes().decode("utf-8", "replace")
+        ):
+            problems.append(
+                Problem(
+                    "EXPLICIT_ONLY_POLICY",
+                    metadata,
+                    "is explicit-only, so it must set policy.allow_implicit_invocation: false.",
+                )
+            )
 
 
 def first_difference(first: bytes, second: bytes) -> int:
@@ -629,6 +690,7 @@ def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
         check_skill(root, name, fileset, schema, problems)
     check_copies(root, fileset, problems)
     check_identical(root, fileset, skills, problems)
+    check_explicit_only(root, fileset, schema, problems)
     budgets = check_budgets(root, skills, fileset, schema, problems)
     for path in files:
         if is_debris(path):

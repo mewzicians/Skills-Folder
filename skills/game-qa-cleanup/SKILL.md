@@ -1,9 +1,11 @@
 ---
 name: game-qa-cleanup
-description: Audit and reconcile a game's active documentation, guidance, handoffs, mirrors, manifests, and skill metadata without changing gameplay or removing files on its own. Use when the user explicitly asks to run QA cleanup, reconcile project truth, repair documentation drift, or prepare handoffs.
+description: Audit and reconcile a game's active documentation, guidance, handoff documents, mirrors, manifests, and skill metadata without changing gameplay or removing files on its own. Use when the user explicitly asks to run QA cleanup, reconcile project truth, or repair documentation drift.
 ---
 
 # Game QA Cleanup
+
+Run only when the user asked for this workflow; otherwise offer it.
 
 Read repository guidance and [references/project-profile.md](references/project-profile.md). Inventory active instructions, design and decision sources, status/handoff files, skills, verification evidence, mirrors, manifests, metadata, and packages. Treat mirrors as copies, never independent truth.
 

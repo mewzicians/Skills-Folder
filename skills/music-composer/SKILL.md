@@ -1,6 +1,6 @@
 ---
 name: music-composer
-description: Compose, critique, arrange, produce, and plan purposeful music through listening-based iteration. Use when the user asks about melody, motifs, harmony, rhythm, form, orchestration, sound design, mixing, game or adaptive music, soundtrack identity, auditions, or what musical direction comes next.
+description: Compose, critique, arrange, and produce music by listening and iterating. Use for melody, motifs, leitmotifs, harmony, rhythm, form, orchestration, sound design, mixing, songs, scores, game or adaptive music, soundtrack identity, musical references, auditions, music-guide upkeep, or next direction.
 ---
 
 # Music Composer

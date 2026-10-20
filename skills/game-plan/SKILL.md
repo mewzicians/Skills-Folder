@@ -1,6 +1,6 @@
 ---
 name: game-plan
-description: Continue game design, systems, progression, economy, content, pacing, and balance planning from a project's durable sources of truth. Use when the user asks to brainstorm, critique, compare, resume, or lock game-design decisions without implementing them.
+description: Continue game design, systems, progression, economy, content, pacing, and balance planning from a project's durable sources of truth. Use to brainstorm, critique, compare, resume, or lock design decisions without implementing them; for simulation or telemetry evidence, use game-balance-lab.
 ---
 
 # Game Plan

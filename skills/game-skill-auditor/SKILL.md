@@ -1,6 +1,6 @@
 ---
 name: game-skill-auditor
-description: Audit, validate, forward-test, and repair agent skills for game development. Use when the user asks for a skill audit, trigger or portability gaps, project-coupling leaks, capability gaps, behavioral repair, or a readiness verdict; not for ordinary skill creation.
+description: Audit, validate, forward-test, and repair agent skills for game development. Use when the user asks for a skill audit, trigger or portability gaps, project-coupling leaks, capability gaps, behavioral repair, or a readiness verdict; not for ordinary skill creation or editing.
 ---
 
 # Game Skill Auditor

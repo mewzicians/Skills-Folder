@@ -1,9 +1,11 @@
 ---
 name: game-release
-description: Synchronize and byte-verify a game's maintained release deliverables, such as a public repository mirror, run pre-publish checks, and build an archive only on request. Use when the user explicitly asks to prepare, refresh, validate, or hand off a public release or upload.
+description: Synchronize and byte-verify maintained game release deliverables, such as a repository mirror or Pages site; run pre-publish checks; build archives or upload bundles on request. Use when the user explicitly asks to prepare, refresh, check, or hand off a public release or upload, not ship readiness.
 ---
 
 # Game Release
+
+Run only when the user asked for this workflow; otherwise offer it.
 
 Read repository guidance and [references/project-profile.md](references/project-profile.md). Identify the authoritative root, the maintained deliverables, the tested candidate version, and the public allowlist. Preserve unrelated work and stop on unexplained implementation-document drift.
 

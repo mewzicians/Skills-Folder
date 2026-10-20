@@ -172,9 +172,13 @@ it until trigger data shows a problem. Claude Code still lists every skill, so
 its description budget counts explicit-only skills too.
 
 The explicit-only skills are `game-release` (the packaging skill),
-`game-qa-cleanup`, and `game-full-verification`. Each sets the policy, and
-each description says "Use when the user explicitly asks to ..." or "Use when
-the user explicitly asks for ...". Each new skill is classified when it ships.
+`game-qa-cleanup`, and `game-full-verification`. Each sets the policy, each
+description says "Use when the user explicitly asks to ..." or "Use when the
+user explicitly asks for ...", and each body opens with "Run only when the
+user asked for this workflow; otherwise offer it." `tools/verify_package.py`
+fails when one of them loses the policy (`EXPLICIT_ONLY_POLICY`), loses the
+wording (`EXPLICIT_ONLY_WORDING`), or is missing (`EXPLICIT_ONLY_MISSING`).
+Each new skill is classified when it ships.
 
 ## Budgets
 

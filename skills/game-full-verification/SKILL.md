@@ -1,9 +1,11 @@
 ---
 name: game-full-verification
-description: Exhaustively verify a complete game release candidate with evidence across requirements, rules, determinism, UI, accessibility, persistence, performance, packaging, and balance. Use when the user explicitly asks for full verification, ship readiness, or complete approved-feature verification.
+description: Exhaustively verify a complete game release candidate with evidence across requirements, rules, determinism, UI, accessibility, persistence, performance, packaging, and balance. Use when the user explicitly asks for full verification, a ship-readiness verdict, or complete approved-feature checks.
 ---
 
 # Game Full Verification
+
+Run only when the user asked for this workflow; otherwise offer it.
 
 Read repository guidance and [references/project-profile.md](references/project-profile.md). Freeze the exact candidate version/hash and every active source of truth. Run the read-only consistency checks verification needs: references and links, encoding and debris, decision-status consistency, and mirror and manifest equality. Verification never edits gameplay or documents; when a check finds drift, report it, and clean up only if the user separately asks for cleanup.
 
