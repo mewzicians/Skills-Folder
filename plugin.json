@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "game-dev-skills",
+  "version": "1.1.0",
+  "description": "Twelve agent skills that help you plan, build, debug, test, balance, compose music for, and release games, with an optional project profile that points the game skills at your own rules and tests.",
+  "author": {
+    "name": "mewzicians",
+    "url": "https://github.com/mewzicians"
+  },
+  "homepage": "https://github.com/mewzicians/Skills-Folder",
+  "repository": "https://github.com/mewzicians/Skills-Folder",
+  "license": "Apache-2.0",
+  "keywords": ["game-development", "skills", "codex", "claude-code"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Game Dev Skills",
+        "shortDescription": "Plan, build, test, and release games",
+        "developerName": "mewzicians",
+        "category": "Coding"
+      }
+    }
+  }
+}

@@ -382,6 +382,148 @@ class FilesystemInventoryTest(unittest.TestCase):
         self.assertIn(("SKILL_MD_MISSING", "skills/orphan"), found)
 
 
+MANIFESTS = (
+    ".claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json",
+    "plugin.json",
+    ".agents/plugins/marketplace.json",
+)
+
+
+def edit_json(root: Path, path: str, change) -> None:
+    target = root / path
+    value = json.loads(target.read_text(encoding="utf-8"))
+    change(value)
+    target.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+
+def manifest_problems(payload: dict) -> set[tuple[str, str]]:
+    return {pair for pair in codes_by_path(payload) if pair[0].startswith("MANIFEST_")}
+
+
+class ManifestTest(unittest.TestCase):
+    """The root plugin's manifests parse, carry required keys, and agree."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="verify-manifests-")
+        self.root = copy_package(Path(self.temp.name) / "package")
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_the_package_manifests_pass(self) -> None:
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(manifest_problems(payload), set(), payload["problems"])
+        self.assertEqual(returncode, 0)
+
+    def test_every_manifest_is_required(self) -> None:
+        for path in MANIFESTS:
+            (self.root / path).unlink()
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(manifest_problems(payload), {("MANIFEST_MISSING", path) for path in MANIFESTS})
+
+    def test_unparseable_manifests(self) -> None:
+        (self.root / ".claude-plugin/plugin.json").write_text('{"name": "x",}\n', encoding="utf-8", newline="\n")
+        (self.root / "plugin.json").write_bytes(b"\xef\xbb\xbf{}\n")
+        (self.root / ".agents/plugins/marketplace.json").write_text("[]\n", encoding="utf-8", newline="\n")
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            manifest_problems(payload),
+            {
+                ("MANIFEST_JSON", ".claude-plugin/plugin.json"),
+                ("MANIFEST_JSON", "plugin.json"),
+                ("MANIFEST_JSON", ".agents/plugins/marketplace.json"),
+            },
+        )
+
+    def test_required_keys(self) -> None:
+        def strip_claude(value: dict) -> None:
+            for key in ("version", "author", "homepage"):
+                value.pop(key)
+            value["license"] = "MIT"
+
+        def strip_codex(value: dict) -> None:
+            entry = value["plugins"][0]
+            entry["policy"].pop("authentication")
+            entry.pop("category")
+
+        def strip_claude_marketplace(value: dict) -> None:
+            value.pop("owner")
+            value["plugins"][0]["source"] = "./plugins/other"
+
+        edit_json(self.root, ".claude-plugin/plugin.json", strip_claude)
+        edit_json(self.root, ".agents/plugins/marketplace.json", strip_codex)
+        edit_json(self.root, ".claude-plugin/marketplace.json", strip_claude_marketplace)
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        messages = {
+            (item["path"], item["message"]) for item in payload["problems"] if item["code"] == "MANIFEST_KEY"
+        }
+        self.assertEqual(
+            messages,
+            {
+                (".claude-plugin/plugin.json", "needs a non-empty string version."),
+                (".claude-plugin/plugin.json", "needs a non-empty string homepage."),
+                (".claude-plugin/plugin.json", "needs author as an object with a non-empty name."),
+                (".claude-plugin/plugin.json", "license must be Apache-2.0, as in LICENSE."),
+                (".agents/plugins/marketplace.json", "needs a non-empty string plugins[0].policy.authentication."),
+                (".agents/plugins/marketplace.json", "needs a non-empty string plugins[0].category."),
+                (".claude-plugin/marketplace.json", "needs owner as an object with a non-empty name."),
+                (".claude-plugin/marketplace.json", "plugins[0].source must be './', the repository root plugin."),
+            },
+        )
+
+    def test_the_portable_manifest_follows_agent_plugins(self) -> None:
+        def break_portable(value: dict) -> None:
+            value["$schema"] = "https://agent-plugins.org/schemas/0.9.0/plugin.schema.json"
+            value["skills"] = "./skills/"
+            # A Codex key outside extensions.com.openai.
+            value["interface"] = value["extensions"]["com.openai"].pop("interface")
+            value["extensions"]["openai"] = {}
+            value["author"]["role"] = "maintainer"
+
+        edit_json(self.root, "plugin.json", break_portable)
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        messages = sorted(item["message"] for item in payload["problems"] if item["code"] == "MANIFEST_SCHEMA")
+        self.assertEqual(
+            messages,
+            sorted(
+                [
+                    "$schema must be https://agent-plugins.org/schemas/1.0.0/plugin.schema.json.",
+                    "'interface' is not an Agent Plugins key; put client data under extensions.",
+                    "'skills' is not an Agent Plugins key; put client data under extensions.",
+                    "author.role must be one of name, email, or url, as a string.",
+                    "extensions.openai must be a reverse-domain namespace holding an object.",
+                ]
+            ),
+        )
+
+    def test_reserved_and_disagreeing_names(self) -> None:
+        edit_json(self.root, ".claude-plugin/plugin.json", lambda value: value.update(name="claude-game-tools"))
+        edit_json(self.root, ".claude-plugin/marketplace.json", lambda value: value.update(name="agent-skills"))
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        problems = [item for item in payload["problems"] if item["code"] == "MANIFEST_NAME"]
+        self.assertEqual(
+            sorted(item["path"] for item in problems),
+            [".claude-plugin/marketplace.json", ".claude-plugin/plugin.json", "plugin.json"],
+        )
+        disagreement = next(item for item in problems if item["path"] == "plugin.json")
+        self.assertIn("'claude-game-tools'", disagreement["message"])
+        self.assertIn("'game-dev-skills'", disagreement["message"])
+
+    def test_no_plugin_level_agents_folder(self) -> None:
+        folder = self.root / "agents"
+        folder.mkdir()
+        (folder / "reviewer.md").write_text("---\nname: reviewer\n---\n", encoding="utf-8", newline="\n")
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(manifest_problems(payload), {("MANIFEST_AGENTS_FOLDER", "agents/reviewer.md")})
+
+
 def set_description(root: Path, name: str, description: str) -> None:
     skill = root / "skills" / name / "SKILL.md"
     lines = skill.read_text(encoding="utf-8").split("\n")

@@ -1,0 +1,16 @@
+{
+  "name": "skills-folder",
+  "owner": {
+    "name": "mewzicians"
+  },
+  "metadata": {
+    "description": "The Skills Folder marketplace: one plugin holding the whole game-development skill suite."
+  },
+  "plugins": [
+    {
+      "name": "game-dev-skills",
+      "source": "./",
+      "description": "Twelve agent skills that help you plan, build, debug, test, balance, compose music for, and release games."
+    }
+  ]
+}

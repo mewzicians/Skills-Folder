@@ -6,10 +6,11 @@ tracked-text policy, public-term hygiene, generated debris inside skills,
 symbolic links that do not resolve to a file, intentionally duplicated files,
 which must stay byte-for-byte equal and present in every skill not exempt
 from carrying one, the explicit-only skills' invocation policy and wording,
-the description and body budgets, and the neutrality lint, which reports text
-that ties the suite to one author or machine. Inside a git checkout the inventory comes from git, so git-ignored
-files are skipped; elsewhere, such as an extracted archive, every file is
-checked.
+the root plugin's manifests and marketplaces, the description and body
+budgets, and the neutrality lint, which reports text that ties the suite to
+one author or machine. Inside a git checkout the inventory comes from git, so
+git-ignored files are skipped; elsewhere, such as an extracted archive, every
+file is checked.
 
 --lint runs only the neutrality lint, the same checks the default run makes.
 
@@ -235,6 +236,31 @@ STRONG_VAULT = re.compile(
 )
 WEAK_VAULT = re.compile(r"(?<![\w.-])(?i:(?P<kind>" + "in" + "box|" + "wi" + r"ki))[\\/]")
 LEDGER_FILE = "context_" + "continuity*.md"
+
+# Plugin manifests. The repository root is one plugin for both hosts. Claude
+# Code reads .claude-plugin/plugin.json and the marketplace beside it; Codex
+# and other Agent Plugins 1.0.0 clients read the portable plugin.json, and
+# Codex reads .agents/plugins/marketplace.json. The portable file's rules
+# restate https://agent-plugins.org/schemas/1.0.0/plugin.schema.json with the
+# standard library; client-specific keys belong under its extensions.
+CLAUDE_MANIFEST = ".claude-plugin/plugin.json"
+CLAUDE_MARKETPLACE = ".claude-plugin/marketplace.json"
+PORTABLE_MANIFEST = "plugin.json"
+CODEX_MARKETPLACE = ".agents/plugins/marketplace.json"
+PLUGIN_SCHEMA_URL = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+PORTABLE_KEYS = {
+    "$schema", "name", "version", "description", "author", "homepage", "repository", "license",
+    "keywords", "extensions",
+}
+PORTABLE_NAME = re.compile(r"^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$")
+AUTHOR_KEYS = {"name", "email", "url"}
+EXTENSION_NAMESPACE = re.compile(r"^[a-z0-9-]+(?:\.[a-z0-9-]+)+$")
+KEBAB_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+# Claude Code refuses these plugin and marketplace names; the suite also avoids
+# the generic "agent-skills".
+RESERVED_PREFIXES = ("claude-", "anthropic-", "anthropics-", "cc-plugin-")
+RESERVED_NAMES = {"claude", "anthropic", "claude-code", "claude-mods", "agent-skills"}
+SUITE_LICENSE = "Apache-2.0"
 
 @dataclass(frozen=True)
 class Problem:
@@ -612,6 +638,157 @@ def render_budgets(budgets: dict[str, object]) -> list[str]:
     return lines
 
 
+def load_manifest(root: Path, path: str, files: set[str], problems: list[Problem]) -> dict | None:
+    """A manifest's JSON object, or None after reporting why it cannot be read."""
+    if path not in files:
+        problems.append(Problem("MANIFEST_MISSING", path, "is missing; the root plugin needs every manifest."))
+        return None
+    data = (root / path).read_bytes()
+    try:
+        value = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as error:
+        line = getattr(error, "lineno", None)
+        problems.append(Problem("MANIFEST_JSON", path, f"is not valid UTF-8 JSON: {error}.", line))
+        return None
+    if not isinstance(value, dict):
+        problems.append(Problem("MANIFEST_JSON", path, "must hold one JSON object."))
+        return None
+    return value
+
+
+def text_value(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def require_text(manifest: dict, keys: tuple[str, ...], path: str, problems: list[Problem], where: str = "") -> None:
+    for key in keys:
+        if not text_value(manifest.get(key)):
+            problems.append(Problem("MANIFEST_KEY", path, f"needs a non-empty string {where}{key}."))
+
+
+def check_plugin_name(name: object, path: str, problems: list[Problem], what: str = "name") -> None:
+    if not isinstance(name, str):
+        return
+    if not KEBAB_NAME.match(name) or len(name) > 64:
+        problems.append(Problem("MANIFEST_NAME", path, f"{what} {name!r} must be kebab-case, at most 64 characters."))
+    if name in RESERVED_NAMES or name.startswith(RESERVED_PREFIXES):
+        problems.append(Problem("MANIFEST_NAME", path, f"{what} {name!r} is reserved by an agent host; choose another."))
+
+
+def check_author(author: object, path: str, problems: list[Problem]) -> None:
+    if not isinstance(author, dict) or not text_value(author.get("name")):
+        problems.append(Problem("MANIFEST_KEY", path, "needs author as an object with a non-empty name."))
+        return
+    for key, value in author.items():
+        if key not in AUTHOR_KEYS or not isinstance(value, str):
+            problems.append(Problem("MANIFEST_SCHEMA", path, f"author.{key} must be one of name, email, or url, as a string."))
+
+
+def check_portable_manifest(manifest: dict, path: str, problems: list[Problem]) -> None:
+    """The Agent Plugins 1.0.0 schema, plus the keys this suite always fills."""
+    if manifest.get("$schema") != PLUGIN_SCHEMA_URL:
+        problems.append(Problem("MANIFEST_SCHEMA", path, f"$schema must be {PLUGIN_SCHEMA_URL}."))
+    name = manifest.get("name")
+    if not isinstance(name, str) or not 1 <= len(name) <= 64 or not PORTABLE_NAME.match(name):
+        problems.append(
+            Problem("MANIFEST_SCHEMA", path, "name must be 1-64 lowercase letters, digits, dots, or single hyphens.")
+        )
+    for key in sorted(set(manifest) - PORTABLE_KEYS):
+        problems.append(
+            Problem("MANIFEST_SCHEMA", path, f"{key!r} is not an Agent Plugins key; put client data under extensions.")
+        )
+    for key in ("version", "description", "homepage", "repository", "license"):
+        if key in manifest and not isinstance(manifest[key], str):
+            problems.append(Problem("MANIFEST_SCHEMA", path, f"{key} must be a string."))
+    keywords = manifest.get("keywords", [])
+    if not isinstance(keywords, list) or not all(isinstance(word, str) for word in keywords):
+        problems.append(Problem("MANIFEST_SCHEMA", path, "keywords must be a list of strings."))
+    extensions = manifest.get("extensions", {})
+    if not isinstance(extensions, dict):
+        problems.append(Problem("MANIFEST_SCHEMA", path, "extensions must be an object."))
+    else:
+        for namespace, value in extensions.items():
+            if not EXTENSION_NAMESPACE.match(namespace) or not isinstance(value, dict):
+                problems.append(
+                    Problem(
+                        "MANIFEST_SCHEMA",
+                        path,
+                        f"extensions.{namespace} must be a reverse-domain namespace holding an object.",
+                    )
+                )
+    if "author" in manifest:
+        check_author(manifest["author"], path, problems)
+    require_text(manifest, ("version", "description", "license"), path, problems)
+
+
+def check_manifests(root: Path, files: set[str], problems: list[Problem]) -> dict[str, dict]:
+    """Each plugin manifest parses, carries its required keys, and names the same plugin."""
+    loaded = {
+        path: manifest
+        for path in (CLAUDE_MANIFEST, CLAUDE_MARKETPLACE, PORTABLE_MANIFEST, CODEX_MARKETPLACE)
+        if (manifest := load_manifest(root, path, files, problems)) is not None
+    }
+    plugin_names = {}
+    claude = loaded.get(CLAUDE_MANIFEST)
+    if claude is not None:
+        require_text(claude, ("name", "version", "description", "homepage", "repository", "license"), CLAUDE_MANIFEST, problems)
+        check_author(claude.get("author"), CLAUDE_MANIFEST, problems)
+        check_plugin_name(claude.get("name"), CLAUDE_MANIFEST, problems)
+        plugin_names[CLAUDE_MANIFEST] = claude.get("name")
+    portable = loaded.get(PORTABLE_MANIFEST)
+    if portable is not None:
+        check_portable_manifest(portable, PORTABLE_MANIFEST, problems)
+        check_plugin_name(portable.get("name"), PORTABLE_MANIFEST, problems)
+        plugin_names[PORTABLE_MANIFEST] = portable.get("name")
+    for path, manifest in ((CLAUDE_MANIFEST, claude), (PORTABLE_MANIFEST, portable)):
+        if manifest is not None and text_value(manifest.get("license")) and manifest["license"] != SUITE_LICENSE:
+            problems.append(Problem("MANIFEST_KEY", path, f"license must be {SUITE_LICENSE}, as in LICENSE."))
+    for path in (CLAUDE_MARKETPLACE, CODEX_MARKETPLACE):
+        marketplace = loaded.get(path)
+        if marketplace is None:
+            continue
+        require_text(marketplace, ("name",), path, problems)
+        check_plugin_name(marketplace.get("name"), path, problems, "marketplace name")
+        if path == CLAUDE_MARKETPLACE:
+            owner = marketplace.get("owner")
+            if not isinstance(owner, dict) or not text_value(owner.get("name")):
+                problems.append(Problem("MANIFEST_KEY", path, "needs owner as an object with a non-empty name."))
+        entries = marketplace.get("plugins")
+        if not isinstance(entries, list) or not entries or not all(isinstance(entry, dict) for entry in entries):
+            problems.append(Problem("MANIFEST_KEY", path, "needs plugins as a non-empty list of objects."))
+            continue
+        for index, entry in enumerate(entries):
+            where = f"plugins[{index}]."
+            require_text(entry, ("name",), path, problems, where)
+            source = entry.get("source")
+            if not (text_value(source) or (isinstance(source, dict) and text_value(source.get("source")))):
+                problems.append(Problem("MANIFEST_KEY", path, f"needs {where}source as a path or a source object."))
+            if path == CLAUDE_MARKETPLACE and isinstance(source, str) and source != "./":
+                problems.append(Problem("MANIFEST_KEY", path, f"{where}source must be './', the repository root plugin."))
+            if path == CODEX_MARKETPLACE:
+                policy = entry.get("policy")
+                if not isinstance(policy, dict):
+                    problems.append(Problem("MANIFEST_KEY", path, f"needs {where}policy as an object."))
+                else:
+                    require_text(policy, ("installation", "authentication"), path, problems, where + "policy.")
+                require_text(entry, ("category",), path, problems, where)
+            plugin_names[f"{path} {where}name"] = entry.get("name")
+    named = {where: name for where, name in plugin_names.items() if isinstance(name, str)}
+    if len(set(named.values())) > 1:
+        listing = ", ".join(f"{where} = {name!r}" for where, name in sorted(named.items()))
+        problems.append(Problem("MANIFEST_NAME", PORTABLE_MANIFEST, f"the plugin names disagree: {listing}."))
+    plugin_folder = sorted(path for path in files if PurePosixPath(path).parts[:1] == ("agents",))
+    if plugin_folder:
+        problems.append(
+            Problem(
+                "MANIFEST_AGENTS_FOLDER",
+                plugin_folder[0],
+                "the root plugin carries no agents/ folder; hosts would load it as plugin subagents.",
+            )
+        )
+    return loaded
+
+
 def line_at(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
@@ -849,6 +1026,7 @@ def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
     check_copies(root, fileset, problems)
     check_identical(root, fileset, skills, problems)
     check_explicit_only(root, fileset, schema, problems)
+    check_manifests(root, fileset, problems)
     budgets = check_budgets(root, skills, fileset, schema, problems)
     for path in files:
         if is_debris(path):
@@ -904,7 +1082,11 @@ def main(argv: list[str] | None = None) -> int:
                 "--budgets lists every skill."
             )
         verdict = "FAIL" if problems else "PASS"
-        scope = "neutrality lint" if args.lint else f"{len(summary['skills'])} skills, budgets, and neutrality lint"
+        scope = (
+            "neutrality lint"
+            if args.lint
+            else f"{len(summary['skills'])} skills, plugin manifests, budgets, and neutrality lint"
+        )
         print(
             f"{verdict}: {len(problems)} problem(s); {scope}; "
             f"{summary['files']} files checked (inventory: {summary['inventory']})."
