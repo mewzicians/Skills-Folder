@@ -1294,9 +1294,10 @@ def _check_fields(values: dict[str, tuple[int, Node]], folder: str | None, add) 
 def _body_todo(lines: list[str], first_line: int) -> int | None:
     """Mirror Codex's validator: a [TODO: ...] line outside code fences.
 
-    Codex splits the body with str.splitlines(), which also ends a line at
-    \\v, \\f, \\x1c-\\x1e, U+0085, U+2028, and U+2029, so each LF-delimited
-    line is split the same way. Reported line numbers count LF lines.
+    Codex splits the body with str.splitlines(), which also ends a line at a
+    vertical tab, a form feed, U+001C-U+001E, U+0085, U+2028, and U+2029, so
+    each LF-delimited line is split the same way. Reported line numbers count
+    LF lines.
     """
     fence_marker: str | None = None
     fence_length = 0

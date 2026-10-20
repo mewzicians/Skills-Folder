@@ -2,8 +2,9 @@
 """Verify the skill suite package in one pass and report every problem.
 
 Checks skill structure, portable frontmatter (docs/SKILL_SCHEMA.md), the
-tracked-text policy, public-term hygiene, generated debris inside skills, and
-symbolic links that do not resolve to a file.
+tracked-text policy, public-term hygiene, generated debris inside skills,
+symbolic links that do not resolve to a file, and intentionally duplicated
+files, which must stay byte-for-byte equal.
 Inside a git checkout the inventory comes from git, so git-ignored files are
 skipped; elsewhere, such as an extracted archive, every file is checked.
 
@@ -62,6 +63,12 @@ BINARY_SUFFIXES = {
 DEBRIS_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini"}
 DEBRIS_SUFFIXES = {".pyc", ".pyo"}
 PROMPT_LINE = re.compile(r"^\s{2}default_prompt:\s*(.*?)\s*$")
+# Generated copies of a canonical file, as {copy: source}. A copy starts with
+# COPY_HEADER naming its source; every byte after that line equals the source.
+GENERATED_COPIES = {
+    "skills/game-skill-auditor/scripts/skill_frontmatter.py": "tools/lib/skill_frontmatter.py",
+}
+COPY_HEADER = "# Generated copy of {source}. Edit that file, then recopy it below this line.\n"
 
 
 @dataclass(frozen=True)
@@ -214,6 +221,41 @@ def check_skill(root: Path, name: str, files: set[str], schema: ModuleType, prob
         problems.append(Problem("DEFAULT_PROMPT_NAME", openai_yaml, f"default_prompt does not name ${name}.", number))
 
 
+def first_difference(first: bytes, second: bytes) -> int:
+    """The 1-based line of the first byte where two texts differ."""
+    index = next(
+        (offset for offset, (a, b) in enumerate(zip(first, second)) if a != b),
+        min(len(first), len(second)),
+    )
+    return first[:index].count(b"\n") + 1
+
+
+def check_copies(root: Path, files: set[str], problems: list[Problem]) -> None:
+    for copy, source in sorted(GENERATED_COPIES.items()):
+        missing = [path for path in (copy, source) if path not in files]
+        for path in missing:
+            problems.append(Problem("COPY_MISSING", path, "is missing; it is half of a generated copy pair."))
+        if missing:
+            continue
+        header = COPY_HEADER.format(source=source).encode("utf-8")
+        data = (root / copy).read_bytes()
+        if not data.startswith(header):
+            problems.append(
+                Problem("COPY_HEADER", copy, f"must start with the generated-copy header naming {source}.", 1)
+            )
+            continue
+        body, expected = data[len(header) :], (root / source).read_bytes()
+        if body != expected:
+            problems.append(
+                Problem(
+                    "COPY_DRIFT",
+                    copy,
+                    f"differs from {source}; recopy it below the header.",
+                    first_difference(body, expected) + 1,
+                )
+            )
+
+
 def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
     schema = load_schema()
     files = git_inventory(root)
@@ -240,6 +282,7 @@ def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
     fileset = set(files) - broken
     for name in skills:
         check_skill(root, name, fileset, schema, problems)
+    check_copies(root, fileset, problems)
     for path in files:
         if is_debris(path):
             problems.append(Problem("DEBRIS", path, "is generated debris; delete it before packaging."))

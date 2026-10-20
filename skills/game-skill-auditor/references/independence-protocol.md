@@ -199,10 +199,11 @@ Structural test records must include a structured Python invocation, a hashed
 validator script, zero exit code, and the digest of the target package tested.
 The bundled audit must record `strict: true` and an exact `--strict` argument.
 The provenance artifact must contain the actual validator output: the assessor
-parses and live-replays the installed official validator, then live-replays the
-auditor's own bundled checker, requiring a zero-error, zero-warning JSON
-summary. Do not treat a free-form command string, target-supplied checker,
-echoed validator name, or unrelated hashed file as execution evidence.
+parses and live-replays a trusted structural validator (the auditor's pinned
+bundled validator or Codex's installed one), then live-replays the auditor's
+own bundled checker, requiring a zero-error, zero-warning JSON summary. Do not
+treat a free-form command string, target-supplied checker, echoed validator
+name, or unrelated hashed file as execution evidence.
 
 Each behavioral record must preserve the raw output plus a structured judgment
 JSON bound to the test, requirements, target, prompt, output, executor, and a

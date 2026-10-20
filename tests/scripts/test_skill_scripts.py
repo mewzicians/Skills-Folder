@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 AUDITOR = ROOT / "skills" / "game-skill-auditor"
 AUDIT_SCRIPT = AUDITOR / "scripts" / "audit_skill.py"
 SELF_TEST = AUDITOR / "scripts" / "self_test.py"
+VALIDATOR = AUDITOR / "scripts" / "validate_skill.py"
 LEDGER_SCRIPT = ROOT / "skills" / "game-context-continuity" / "scripts" / "continuity_ledger.py"
 CHILD_FLAGS = ["-B", "-X", "warn_default_encoding", "-W", "error::EncodingWarning"]
 BOM = b"\xef\xbb\xbf"
@@ -157,14 +158,90 @@ class AuditorEncodingTest(unittest.TestCase):
         self.assertEqual(self.encoding_findings(findings), [("ERROR", "agents/openai.yaml")])
 
 
+class BundledValidatorTest(unittest.TestCase):
+    """The auditor's own structural validator needs neither PyYAML nor a host install."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="auditor-validator-")
+        self.package = Path(self.temp.name) / "game-plan"
+        shutil.copytree(ROOT / "skills" / "game-plan", self.package)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def validate(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        # Importing yaml must fail, so a hidden PyYAML dependency cannot pass.
+        program = (
+            "import runpy, sys\n"
+            "sys.modules['yaml'] = None\n"
+            f"sys.argv = [{str(VALIDATOR)!r}, *sys.argv[1:]]\n"
+            f"runpy.run_path({str(VALIDATOR)!r}, run_name='__main__')\n"
+        )
+        return run_python("-c", program, *arguments)
+
+    def test_a_valid_skill(self) -> None:
+        completed = self.validate(str(self.package))
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertEqual(completed.stdout, "Skill is valid!\n")
+
+    def test_an_invalid_skill(self) -> None:
+        skill = self.package / "SKILL.md"
+        skill.write_bytes(skill.read_bytes().replace(b"name: game-plan", b"name: Game-Plan", 1))
+        completed = self.validate(str(self.package))
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        self.assertIn("error NAME_FORMAT", completed.stdout)
+        self.assertTrue(completed.stdout.endswith("Skill is invalid.\n"), completed.stdout)
+        self.assertNotIn("Skill is valid!", completed.stdout)
+
+    def test_usage_errors_exit_2(self) -> None:
+        for arguments in ((), (str(self.package), str(self.package)), ("--level",)):
+            with self.subTest(arguments=arguments):
+                self.assertEqual(self.validate(*arguments).returncode, 2)
+
+    def test_the_assessor_pins_the_current_bytes(self) -> None:
+        assessor = load_script(AUDITOR / "scripts" / "assess_evidence.py", "assess_evidence_pins")
+        message = "repin BUNDLED_VALIDATOR_SHA256 and BUNDLED_SCHEMA_SHA256 in assess_evidence.py"
+        self.assertEqual(assessor.sha256_file(VALIDATOR), assessor.BUNDLED_VALIDATOR_SHA256, message)
+        self.assertEqual(
+            assessor.sha256_file(VALIDATOR.with_name("skill_frontmatter.py")),
+            assessor.BUNDLED_SCHEMA_SHA256,
+            message,
+        )
+
+
+class SelfTestProbeFolderTest(unittest.TestCase):
+    """The self-test creates its probe folder only while it runs and always removes it."""
+
+    def test_a_failed_run_leaves_no_probe_folder(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="probe-folder-") as temp:
+            program = (
+                "import importlib.util, os, sys, tempfile\n"
+                f"tempfile.tempdir = {temp!r}\n"
+                f"spec = importlib.util.spec_from_file_location('self_test', {str(SELF_TEST)!r})\n"
+                "module = importlib.util.module_from_spec(spec)\n"
+                "spec.loader.exec_module(module)\n"
+                "assert module.OUT_DIR is None and os.listdir(tempfile.tempdir) == []\n"
+                "def broken():\n"
+                "    raise RuntimeError('forced failure')\n"
+                "module.build_example = broken\n"
+                "try:\n"
+                "    module.run([])\n"
+                "except RuntimeError as error:\n"
+                "    print(error)\n"
+                "print(sorted(os.listdir(tempfile.tempdir)))\n"
+            )
+            completed = run_python("-c", program)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(completed.stdout.splitlines(), ["forced failure", "[]"])
+
+
 class SelfTestFlagsTest(unittest.TestCase):
     """The auditor self-test passes its encoding flags on to the scorers it runs."""
 
     def child_flags(self, flags: list[str]) -> list[str]:
         program = (
-            "import json, runpy, shutil\n"
+            "import json, runpy\n"
             f"namespace = runpy.run_path({str(SELF_TEST)!r}, run_name='self_test')\n"
-            "shutil.rmtree(namespace['OUT_DIR'], ignore_errors=True)\n"
             "print(json.dumps(namespace['child_flags']()))\n"
         )
         completed = run_python("-c", program, flags=flags)

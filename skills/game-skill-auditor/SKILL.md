@@ -134,9 +134,11 @@ the friendly label does not replace evidence or independence controls.
 
 ## Run Deterministic Checks
 
-Run the official skill validator when it is available. Then run:
+Run the bundled structural validator, which needs only the Python standard
+library, then the bundled audit:
 
 ```powershell
+python scripts/validate_skill.py <path-to-skill>
 python scripts/audit_skill.py <path-to-skill>
 ```
 
@@ -155,8 +157,10 @@ regression suite:
 python scripts/self_test.py
 ```
 
-The suite must report exact expected readiness for every positive and negative
-probe, not merely the absence of over-awards.
+By default it replays the bundled validator, so it needs no host installation.
+Add `--host-validator` to replay Codex's installed validator instead, which
+needs PyYAML. The suite must report exact expected readiness for every
+positive and negative probe, not merely the absence of over-awards.
 
 Use `scripts/assess_evidence.py` with an evidence manifest after behavioral
 testing. Start from
@@ -180,14 +184,15 @@ to manual adjudication, never as automatic readiness awards.
 
 For structural evidence, record a structured invocation with the Python
 executable, hashed validator script, argument list, exit code, target package
-digest, and actual hashed output. The assessor parses the official validator's
-success text, live-replays that installed validator, then live-replays the
-auditor's bundled static checker and parses its JSON summary. The official
-validator must be the installed system validator under `CODEX_HOME`, falling
-back to `~/.codex`, and the bundled checker must be the script beside the
-assessor. The bundled audit arguments must contain the exact `--strict` flag;
-a free-form command string or target-supplied lookalike is not proof of
-execution.
+digest, and actual hashed output. The `official-validator` record must name a
+trusted validator: the bundled `scripts/validate_skill.py` beside the assessor,
+whose bytes and schema module match the assessor's pinned hashes, or Codex's
+installed system validator under `CODEX_HOME`, falling back to `~/.codex`. The
+assessor parses that validator's success text and live-replays it, then
+live-replays the auditor's bundled static checker and parses its JSON summary.
+The bundled checker must be the script beside the assessor. The bundled audit
+arguments must contain the exact `--strict` flag; a free-form command string
+or target-supplied lookalike is not proof of execution.
 
 ## Audit Triggering
 

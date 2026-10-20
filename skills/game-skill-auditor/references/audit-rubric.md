@@ -93,7 +93,7 @@ row as `Pass`, `Partial`, `Fail`, or `Unknown` and attach evidence.
 | Evidence integrity | Does provenance identify source, actor, artifact, creation time, and custodian? |
 | Manifest integrity | Are placeholders, non-object records, duplicate role identities, and duplicate disagreement IDs rejected before readiness? |
 | Structural binding | Do validator records preserve a structured executable, hashed script, exact arguments, strict mode, exit code, target digest, and hashed output? |
-| Validator replay | Does the assessor live-replay both the installed official validator and its own strict checker? |
+| Validator replay | Does the assessor live-replay both a trusted structural validator (its pinned bundled one or Codex's installed one) and its own strict checker? |
 | Output binding | Are validator outputs parsed, and are behavioral results bound to raw outputs, prompts, requirements, actors, and the exact target? |
 | Judgment substance | Does each judgment state its lens, rationale, and an observable result for every linked criterion? |
 | Context binding | Are result actors bound to their role context IDs and prompt hashes? |

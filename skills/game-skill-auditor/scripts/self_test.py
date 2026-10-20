@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import copy
 import json
 import os
@@ -17,37 +18,26 @@ from typing import Callable
 
 TARGET = Path(__file__).resolve().parents[1]
 SCORER = TARGET / "scripts" / "assess_evidence.py"
-OUT_DIR = Path(tempfile.mkdtemp(prefix="skill-auditor-probes-"))
-ROOT = OUT_DIR.parent
-EVIDENCE_DIR = OUT_DIR / "evidence"
-EVIDENCE_FILE = EVIDENCE_DIR / "evidence.log"
-HOLDOUT_FILE = OUT_DIR / "external-holdout.txt"
-ACCEPTANCE_FILE = OUT_DIR / "user-acceptance.txt"
-EXTERNAL_REVIEW_FILE = OUT_DIR / "external-review.json"
-AUDIT_BEFORE_PACKAGE = EVIDENCE_DIR / "audit-before-package"
-AUDIT_AFTER_PACKAGE = EVIDENCE_DIR / "audit-after-package"
-REPAIR_BEFORE_PACKAGE = EVIDENCE_DIR / "repair-before-package"
-REPAIR_AFTER_PACKAGE = EVIDENCE_DIR / "repair-after-package"
-UNRELATED_BEFORE_PACKAGE = EVIDENCE_DIR / "unrelated-before-package"
-INSTALLED_OFFICIAL_VALIDATOR = (
-    Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
-    / "skills"
-    / ".system"
-    / "skill-creator"
-    / "scripts"
-    / "quick_validate.py"
-)
-BUNDLED_OFFICIAL_VALIDATOR = (
-    TARGET.parent
-    / "game-skill-creator"
-    / "scripts"
-    / "quick_validate.py"
-)
-OFFICIAL_VALIDATOR = (
-    INSTALLED_OFFICIAL_VALIDATOR
-    if INSTALLED_OFFICIAL_VALIDATOR.is_file()
-    else BUNDLED_OFFICIAL_VALIDATOR
-)
+# The auditor's own validator needs only the standard library, so the default
+# run is hermetic: it never depends on what a host agent has installed.
+BUNDLED_VALIDATOR = TARGET / "scripts" / "validate_skill.py"
+# The structural validator the probes record and replay. run() sets it.
+OFFICIAL_VALIDATOR = BUNDLED_VALIDATOR
+
+# Probe paths. run() creates a fresh probe folder, sets these, and removes the
+# folder when it finishes or fails, so importing this module creates nothing.
+OUT_DIR = None
+ROOT = None
+EVIDENCE_DIR = None
+EVIDENCE_FILE = None
+HOLDOUT_FILE = None
+ACCEPTANCE_FILE = None
+EXTERNAL_REVIEW_FILE = None
+AUDIT_BEFORE_PACKAGE = None
+AUDIT_AFTER_PACKAGE = None
+REPAIR_BEFORE_PACKAGE = None
+REPAIR_AFTER_PACKAGE = None
+UNRELATED_BEFORE_PACKAGE = None
 
 LEVELS = [
     "Not Validated",
@@ -68,6 +58,38 @@ EVIDENCE_COMPLETENESS_BY_LEVEL = {
 LEVEL_BY_EVIDENCE_COMPLETENESS = {
     value: key for key, value in EVIDENCE_COMPLETENESS_BY_LEVEL.items()
 }
+
+
+def host_validator() -> Path:
+    """Codex's installed skill-creator validator, used only with --host-validator."""
+    return (
+        Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
+        / "skills"
+        / ".system"
+        / "skill-creator"
+        / "scripts"
+        / "quick_validate.py"
+    )
+
+
+def configure_paths(out_dir: Path) -> None:
+    """Point every probe path at one fresh folder."""
+    global OUT_DIR, ROOT, EVIDENCE_DIR, EVIDENCE_FILE, HOLDOUT_FILE
+    global ACCEPTANCE_FILE, EXTERNAL_REVIEW_FILE, AUDIT_BEFORE_PACKAGE
+    global AUDIT_AFTER_PACKAGE, REPAIR_BEFORE_PACKAGE, REPAIR_AFTER_PACKAGE
+    global UNRELATED_BEFORE_PACKAGE
+    OUT_DIR = out_dir
+    ROOT = OUT_DIR.parent
+    EVIDENCE_DIR = OUT_DIR / "evidence"
+    EVIDENCE_FILE = EVIDENCE_DIR / "evidence.log"
+    HOLDOUT_FILE = OUT_DIR / "external-holdout.txt"
+    ACCEPTANCE_FILE = OUT_DIR / "user-acceptance.txt"
+    EXTERNAL_REVIEW_FILE = OUT_DIR / "external-review.json"
+    AUDIT_BEFORE_PACKAGE = EVIDENCE_DIR / "audit-before-package"
+    AUDIT_AFTER_PACKAGE = EVIDENCE_DIR / "audit-after-package"
+    REPAIR_BEFORE_PACKAGE = EVIDENCE_DIR / "repair-before-package"
+    REPAIR_AFTER_PACKAGE = EVIDENCE_DIR / "repair-after-package"
+    UNRELATED_BEFORE_PACKAGE = EVIDENCE_DIR / "unrelated-before-package"
 
 
 def child_flags() -> list[str]:
@@ -1510,6 +1532,19 @@ def spoofed_structural_output(manifest: dict) -> None:
     )
 
 
+def relocated_bundled_validator(manifest: dict) -> None:
+    # The same bytes in another folder: a target can ship a lookalike that
+    # prints the success line, so only the copy beside the assessor is trusted.
+    lookalike = EVIDENCE_DIR / "relocated-validator"
+    lookalike.mkdir(parents=True, exist_ok=True)
+    for name in ("validate_skill.py", "skill_frontmatter.py"):
+        shutil.copyfile(TARGET / "scripts" / name, lookalike / name)
+    script = lookalike / "validate_skill.py"
+    invocation = structural_test(manifest, "official-validator")["invocation"]
+    invocation["script_ref"] = str(script)
+    invocation["script_sha256"] = sha256_file(script)
+
+
 def malformed_behavior_result(manifest: dict) -> None:
     item = next(
         record
@@ -2130,6 +2165,12 @@ PROBES: list[Probe] = [
         spoofed_structural_output,
     ),
     (
+        "relocated_bundled_validator",
+        "Not Validated",
+        "A byte-identical copy of the bundled validator outside the auditor must not be trusted.",
+        relocated_bundled_validator,
+    ),
+    (
         "malformed_behavior_result",
         "Structurally Valid",
         "Behavioral readiness requires a target-bound structured judgment.",
@@ -2301,8 +2342,41 @@ DETAIL_EXPECTATIONS: dict[str, dict[str, bool]] = {
 }
 
 
-def run() -> int:
+def parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--host-validator",
+        action="store_true",
+        help=(
+            "record and replay Codex's installed skill-creator validator under "
+            "CODEX_HOME (default ~/.codex) instead of the bundled one; it "
+            "needs PyYAML"
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def run(argv: list[str] | None = None) -> int:
+    global OFFICIAL_VALIDATOR
     configure_stdio()
+    args = parse_args(argv)
+    OFFICIAL_VALIDATOR = host_validator() if args.host_validator else BUNDLED_VALIDATOR
+    if not OFFICIAL_VALIDATOR.is_file():
+        print(
+            f"self_test.py: the structural validator {OFFICIAL_VALIDATOR} "
+            "does not exist.",
+            file=sys.stderr,
+        )
+        return 2
+    out_dir = Path(tempfile.mkdtemp(prefix="skill-auditor-probes-"))
+    try:
+        configure_paths(out_dir)
+        return run_probes("host" if args.host_validator else "bundled")
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def run_probes(validator_label: str) -> int:
     target_digest = package_digest(TARGET)
     write_text_atomic(
         HOLDOUT_FILE,
@@ -2531,6 +2605,7 @@ def run() -> int:
     result_path = OUT_DIR / "results.json"
     write_text_atomic(result_path, json.dumps(results, indent=2) + "\n")
     output = {
+        "structural_validator": validator_label,
         "probe_count": len(results),
         "bypass_count": sum(item["bypass"] for item in results),
         "exit_mismatch_count": sum(
@@ -2563,7 +2638,6 @@ def run() -> int:
         or not require_level_ok
         else 0
     )
-    shutil.rmtree(OUT_DIR, ignore_errors=True)
     return exit_code
 
 

@@ -80,6 +80,12 @@ jobs:
           python -B -X warn_default_encoding -W error::EncodingWarning
           skills/game-context-continuity/scripts/continuity_ledger.py self-test
 
+      # Before PyYAML is installed, so the default run is shown to need none.
+      - name: Run the auditor adversarial self-test
+        run: >-
+          python -B -X warn_default_encoding -W error::EncodingWarning
+          skills/game-skill-auditor/scripts/self_test.py
+
       - name: Install the CI-only test dependency
         run: python -m pip install --disable-pip-version-check --require-hashes -r requirements-ci.txt
 
@@ -89,11 +95,6 @@ jobs:
         run: >-
           python -B -X warn_default_encoding -W error::EncodingWarning
           tests/frontmatter/test_differential.py
-
-      - name: Run the auditor adversarial self-test
-        run: >-
-          python -B -X warn_default_encoding -W error::EncodingWarning
-          skills/game-skill-auditor/scripts/self_test.py
 
       - name: Run the PowerShell package verifier
         if: runner.os == 'Windows'

@@ -181,7 +181,14 @@ class FilesystemInventoryTest(unittest.TestCase):
         shutil.rmtree(self.root / "skills")
         returncode, payload = run_verifier(self.root)
         self.assertEqual(returncode, 1)
-        self.assertEqual(codes_by_path(payload), {("NO_SKILLS", "skills")})
+        self.assertEqual(
+            codes_by_path(payload),
+            {
+                ("NO_SKILLS", "skills"),
+                # The auditor's generated copy went with the skills.
+                ("COPY_MISSING", "skills/game-skill-auditor/scripts/skill_frontmatter.py"),
+            },
+        )
 
     def test_an_internal_error_exits_3(self) -> None:
         # Break the inventory walk; the verifier must not report a failed check.
@@ -214,6 +221,36 @@ class FilesystemInventoryTest(unittest.TestCase):
         self.assertEqual(payload["inventory"], "filesystem")
         self.assertEqual(codes_by_path(payload), BROKEN_LINK_PROBLEMS, payload["problems"])
         self.assertEqual(returncode, 1)
+
+    def test_generated_copies_must_match_their_source(self) -> None:
+        copy = self.root / "skills" / "game-skill-auditor" / "scripts" / "skill_frontmatter.py"
+        lines = copy.read_bytes().split(b"\n")
+        lines[5] += b" # drift"
+        copy.write_bytes(b"\n".join(lines))
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            [(item["code"], item["path"], item["line"]) for item in payload["problems"]],
+            [("COPY_DRIFT", "skills/game-skill-auditor/scripts/skill_frontmatter.py", 6)],
+        )
+        copy.write_bytes(b"\n".join(lines[1:]))
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            codes_by_path(payload),
+            {("COPY_HEADER", "skills/game-skill-auditor/scripts/skill_frontmatter.py")},
+        )
+        (self.root / "tools" / "lib" / "skill_frontmatter.py").unlink()
+        copy.unlink()
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            {(code, path) for code, path in codes_by_path(payload) if code == "COPY_MISSING"},
+            {
+                ("COPY_MISSING", "tools/lib/skill_frontmatter.py"),
+                ("COPY_MISSING", "skills/game-skill-auditor/scripts/skill_frontmatter.py"),
+            },
+        )
 
     def test_missing_files_and_prompts(self) -> None:
         (self.root / "skills" / "game-ux-audit" / "agents" / "openai.yaml").unlink()

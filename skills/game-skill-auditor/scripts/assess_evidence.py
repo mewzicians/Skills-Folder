@@ -42,8 +42,14 @@ MUTATION_CATEGORIES = {"trigger", "context", "boundary", "evidence", "metadata"}
 SEVERITIES = {"critical", "high", "medium", "low"}
 MATERIAL_SEVERITIES = {"critical", "high"}
 STRUCTURAL_TEST_IDS = {"official-validator", "bundled-audit"}
-BUNDLED_OFFICIAL_VALIDATOR_SHA256 = (
-    "6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51"
+# The auditor's own structural validator and the schema module it loads, both
+# beside this file. The pair is trusted only while both hashes match, so edit
+# either file and these pins together.
+BUNDLED_VALIDATOR_SHA256 = (
+    "a61de88f9532741863281b4eaff222fc28824b890f1e4da44a6e806e6ce87974"
+)
+BUNDLED_SCHEMA_SHA256 = (
+    "ecb79aebfe3aef57ef03783062a9314f4fc0f1b37164edcb1b20f50db64046b7"
 )
 CONTRACT_CLAUSES = {
     "trigger",
@@ -808,10 +814,12 @@ def valid_structural_test(
     if output_path is None:
         return False
     if test_id == "official-validator":
+        # Two validators are trusted: the auditor's bundled one, by path and
+        # hash, and Codex's installed system validator, by path.
         codex_home = Path(
             os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))
         ).expanduser()
-        expected_official = (
+        host_validator = (
             codex_home
             / "skills"
             / ".system"
@@ -819,18 +827,17 @@ def valid_structural_test(
             / "scripts"
             / "quick_validate.py"
         ).resolve()
-        expected_bundled = (
-            Path(__file__).resolve().parents[2]
-            / "game-skill-creator"
-            / "scripts"
-            / "quick_validate.py"
-        ).resolve()
-        trusted_validator = script_path == expected_official
-        if script_path == expected_bundled:
+        scripts = Path(__file__).resolve().parent
+        bundled_validator = scripts / "validate_skill.py"
+        bundled_schema = scripts / "skill_frontmatter.py"
+        if script_path == bundled_validator:
             trusted_validator = (
-                sha256_file(script_path)
-                == BUNDLED_OFFICIAL_VALIDATOR_SHA256
+                sha256_file(script_path) == BUNDLED_VALIDATOR_SHA256
+                and bundled_schema.is_file()
+                and sha256_file(bundled_schema) == BUNDLED_SCHEMA_SHA256
             )
+        else:
+            trusted_validator = script_path == host_validator
         try:
             output_text = output_path.read_text(encoding="utf-8-sig")
         except (OSError, UnicodeDecodeError):

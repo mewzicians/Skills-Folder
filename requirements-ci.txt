@@ -1,7 +1,6 @@
-# CI only. The auditor self-test replays the bundled skill-creator validator,
-# which still imports PyYAML, and tests/frontmatter/test_differential.py
-# compares the frontmatter schema with it. No tool or skill script needs
-# PyYAML at run time.
+# CI only. tests/frontmatter/test_differential.py compares the frontmatter
+# schema with PyYAML. No tool or skill script needs PyYAML at run time; the
+# auditor self-test needs it only with its opt-in --host-validator flag.
 #
 # Install with pip's --require-hashes. The hashes cover every file PyPI lists
 # for this release, including the sdist that pip builds where no wheel fits.

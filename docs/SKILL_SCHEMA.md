@@ -179,9 +179,13 @@ ships.
 ## Relationship To Other Checks
 
 - `tools/validate_skill.py` is the suite's frontmatter gate.
-  `skills/game-skill-creator/scripts/quick_validate.py` stays byte-for-byte
-  unchanged in this release, because the auditor pins its hash. It still needs
-  PyYAML and reads files in the locale encoding.
+- The auditor carries a generated copy of this module,
+  `skills/game-skill-auditor/scripts/skill_frontmatter.py`, behind its own
+  `scripts/validate_skill.py`, which checks one skill at the spec level. The
+  auditor's evidence check pins both files' hashes, so a machine with neither
+  PyYAML nor Codex can still produce structural evidence.
+  `tools/verify_package.py` fails if the copy differs from this module after
+  its one header line, so edit this module and then recopy it.
 - `skills/game-skill-auditor/scripts/audit_skill.py` keeps its own frontmatter
   checks until a later v1.1 step moves it onto this module.
 - The schema module never imports PyYAML. PyYAML may appear only in CI, as a
