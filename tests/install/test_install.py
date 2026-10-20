@@ -970,7 +970,8 @@ class LedgerAndJournalSafetyTest(HomesTestCase):
         [backup] = self.homes.backups()
         self.assertEqual(sorted(path.name for path in backup.iterdir()), sorted(SKILLS + ["backup.json"]))
         self.assertVictimsUntouched()
-        self.assertEqual(sorted(path.name for path in self.homes.home.iterdir()), [".agents", "victim"])
+        in_home = {path.name for path in self.homes.home.iterdir()} - {"Library"}  # the macOS state folder
+        self.assertEqual(in_home, {".agents", "victim"})
         self.assertEqual([path.name for path in self.homes.codex.parent.iterdir()], ["skills"])
         expected = {"backups", "install-ledger.json", "install.lock", "victim"}
         self.assertLessEqual({path.name for path in self.homes.state.iterdir()}, expected)
