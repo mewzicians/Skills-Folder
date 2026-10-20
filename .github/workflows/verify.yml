@@ -48,8 +48,9 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
+      # Structure, frontmatter, text policy, budgets, and the neutrality lint.
       - name: Verify package
-        run: python -B -X warn_default_encoding -W error::EncodingWarning tools/verify_package.py
+        run: python -B -X warn_default_encoding -W error::EncodingWarning tools/verify_package.py --budgets
 
       - name: Validate portable frontmatter
         run: >-

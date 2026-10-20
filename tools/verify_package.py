@@ -4,12 +4,13 @@
 Checks skill structure, portable frontmatter (docs/SKILL_SCHEMA.md), the
 tracked-text policy, public-term hygiene, generated debris inside skills,
 symbolic links that do not resolve to a file, intentionally duplicated files,
-which must stay byte-for-byte equal, and the description and body budgets.
-Inside a git checkout the inventory comes from git, so git-ignored files are
-skipped; elsewhere, such as an extracted archive, every file is checked.
+which must stay byte-for-byte equal, the description and body budgets, and
+the neutrality lint, which reports text that ties the suite to one author or
+machine. Inside a git checkout the inventory comes from git, so git-ignored
+files are skipped; elsewhere, such as an extracted archive, every file is
+checked.
 
---lint runs only the neutrality lint instead, which reports text that ties the
-suite to one author or machine. It is not yet part of the default gate.
+--lint runs only the neutrality lint, the same checks the default run makes.
 
 Exit codes: 0 pass, 1 problems found, 2 usage error, 3 internal error.
 Standard library only.
@@ -91,8 +92,9 @@ BODY_TOKEN_CAPS = {
     "music-composer": 2000,
 }
 
-# Neutrality lint (--lint). Every pattern is built from fragments, so this
-# file never contains anything it reports.
+# Neutrality lint (part of the default run; --lint runs it alone). Every
+# pattern is built from fragments, so this file never contains anything it
+# reports.
 GRANT_PHRASES = (
     ("has", "stand" + "ing", "appro" + "val", "to"),
     ("has", "stand" + "ing", "permis" + "sion", "to"),
@@ -487,13 +489,8 @@ def lint_text(path: str, text: str, problems: list[Problem]) -> None:
             )
 
 
-def lint(root: Path) -> tuple[list[Problem], dict[str, object]]:
+def lint_files(root: Path, files: list[str], problems: list[Problem]) -> None:
     """The neutrality lint: findings for text that ties the suite to one author."""
-    files = git_inventory(root)
-    mode = "git"
-    if files is None:
-        files, mode = walk_inventory(root), "filesystem"
-    problems: list[Problem] = []
     for path in files:
         if fnmatch.fnmatchcase(PurePosixPath(path).name.casefold(), LEDGER_FILE):
             problems.append(Problem("LINT_CONTINUITY_LEDGER", path, "is a continuity ledger; never commit one."))
@@ -510,6 +507,16 @@ def lint(root: Path) -> tuple[list[Problem], dict[str, object]]:
         data = full.read_bytes()
         if not is_binary(path, data):
             lint_text(path, data.decode("utf-8", "replace"), problems)
+
+
+def lint(root: Path) -> tuple[list[Problem], dict[str, object]]:
+    """Only the neutrality lint, for --lint."""
+    files = git_inventory(root)
+    mode = "git"
+    if files is None:
+        files, mode = walk_inventory(root), "filesystem"
+    problems: list[Problem] = []
+    lint_files(root, files, problems)
     summary = {"root": str(root), "inventory": mode, "files": len(files), "mode": "lint"}
     return problems, summary
 
@@ -552,6 +559,7 @@ def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
         check_forbidden(path, data, problems)
         if not is_binary(path, data):
             check_text(path, data, problems)
+    lint_files(root, files, problems)
     summary = {"root": str(root), "inventory": mode, "files": len(files), "skills": skills, "budgets": budgets}
     return problems, summary
 
@@ -565,9 +573,9 @@ def main(argv: list[str] | None = None) -> int:
         "--lint",
         action="store_true",
         help=(
-            "run only the neutrality lint: self-granted permission, author-specific "
-            "names, absolute user paths, personal email addresses, private vault "
-            "names, and committed continuity ledgers"
+            "run only the neutrality lint, which the default run also makes: "
+            "self-granted permission, author-specific names, absolute user paths, "
+            "personal email addresses, private vault names, and committed continuity ledgers"
         ),
     )
     parser.add_argument(
@@ -596,7 +604,7 @@ def main(argv: list[str] | None = None) -> int:
                 "--budgets lists every skill."
             )
         verdict = "FAIL" if problems else "PASS"
-        scope = "neutrality lint" if args.lint else f"{len(summary['skills'])} skills"
+        scope = "neutrality lint" if args.lint else f"{len(summary['skills'])} skills, budgets, and neutrality lint"
         print(
             f"{verdict}: {len(problems)} problem(s); {scope}; "
             f"{summary['files']} files checked (inventory: {summary['inventory']})."

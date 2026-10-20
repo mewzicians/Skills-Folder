@@ -405,7 +405,7 @@ PLANTED_LINES = [
 
 
 class NeutralityLintTest(unittest.TestCase):
-    """--lint reports planted cases; the default gate does not run it yet."""
+    """The default gate and --lint both report planted lint cases."""
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="verify-lint-")
@@ -419,9 +419,8 @@ class NeutralityLintTest(unittest.TestCase):
         self.assertEqual(returncode, 1 if payload["problems"] else 0)
         return payload["problems"]
 
-    def test_the_tools_and_tests_hold_no_hits(self) -> None:
-        for item in self.lint():
-            self.assertFalse(item["path"].startswith(("tools/", "tests/")), item)
+    def test_the_package_holds_no_hits(self) -> None:
+        self.assertEqual(self.lint(), [])
 
     def test_planted_cases(self) -> None:
         doc = "docs/planted.md"
@@ -449,8 +448,12 @@ class NeutralityLintTest(unittest.TestCase):
         )
         wrapped = next(item for item in problems if item["line"] == 4)
         self.assertIn("lines 4-5", wrapped["message"])
-        _, payload = run_verifier(self.root)
-        self.assertEqual([item for item in payload["problems"] if item["code"].startswith("LINT_")], [])
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            [item for item in payload["problems"] if item["code"].startswith("LINT_")],
+            problems,
+        )
 
 
 @unittest.skipUnless(shutil.which("git"), "git is not installed")

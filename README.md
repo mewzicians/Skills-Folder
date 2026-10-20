@@ -84,7 +84,9 @@ why volatile project status never belongs in it.
 The release package is checked for:
 
 - valid skill structure and matching metadata;
-- project-neutral language and portable paths;
+- project-neutral language and portable paths, including a neutrality lint
+  for self-granted permissions, author-specific names, personal paths and
+  addresses, private vault names, and committed continuity ledgers;
 - description and body size budgets;
 - strict static-audit findings;
 - continuity and auditor adversarial self-tests;
