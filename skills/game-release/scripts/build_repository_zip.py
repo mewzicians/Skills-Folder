@@ -13,10 +13,13 @@ In every mode, files matching a default exclude (secrets, credentials,
 environments, editor and vault state, continuity ledgers, backups, git
 metadata, caches, archives) are left out and listed, unless an --include
 pattern names them. Git-ignored files, symbolic links, and the .git folder
-are never packaged. When a .git folder or file exists at or above SOURCE, the
-builder needs git to answer for it: if git is missing or fails, the build is
-refused rather than run without git's ignore rules. GIT_DIR, GIT_WORK_TREE,
-GIT_INDEX_FILE, and the other variables that redirect git are ignored.
+are never packaged. Windows junctions count as symbolic links and are never
+followed, and a file whose real path leaves SOURCE fails the build.
+
+When a .git folder or file exists at or above SOURCE, the builder needs git
+to answer for it: if git is missing or fails, the build is refused rather
+than run without git's ignore rules. GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE,
+and the other variables that redirect git are ignored.
 
 The JSON summary lists every packaged path, every excluded path with its
 reason, and two digests. contentDigest is the SHA-256 of the lines
@@ -42,6 +45,7 @@ import hashlib
 import json
 import os
 import platform
+import stat
 import subprocess
 import zipfile
 import zlib
@@ -51,6 +55,8 @@ ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 UNIX_FILE_MODE = 0o100644
 CREATE_SYSTEM_UNIX = 3
 DEFLATE_LEVEL = 9
+# The bit that marks a Windows reparse tag as a name surrogate: a link to another path.
+NAME_SURROGATE_TAG = 0x20000000
 
 # (pattern, where it applies): "dir" matches a folder on the path, "file" the
 # final name, "any" either. Matching ignores case. Some names are built from
@@ -238,26 +244,58 @@ def inside_git_work_tree(source: Path) -> bool:
     )
 
 
-def walk(source: Path) -> tuple[list[str], list[str]]:
-    """Files and symbolic links under source, and the .git entries skipped."""
-    names, git_entries = [], []
+def is_link(path: Path) -> bool:
+    """A symbolic link, or on Windows a junction or another redirecting reparse point.
+
+    pathlib's is_symlink() is False for a junction, and os.walk descends into
+    one. A reparse point whose tag is a name surrogate points somewhere else;
+    other reparse points, such as cloud-storage placeholders, hold the file's
+    own data and are ordinary files.
+    """
+    info = os.lstat(path)
+    if stat.S_ISLNK(info.st_mode):
+        return True
+    if getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+        tag = getattr(info, "st_reparse_tag", 0)
+        return tag == 0 or bool(tag & NAME_SURROGATE_TAG)
+    isjunction = getattr(os.path, "isjunction", None)
+    return bool(isjunction is not None and isjunction(path))
+
+
+def walk(source: Path) -> tuple[list[str], set[str], list[str]]:
+    """Files and links under source, which links they are, and the .git entries skipped.
+
+    A link to a folder is listed as one entry and never followed.
+    """
+    names, links, git_entries = [], set(), []
     for directory, subdirectories, filenames in os.walk(source):
         relative = Path(directory).relative_to(source)
         descend = []
         for name in sorted(subdirectories):
             if name == ".git":
                 git_entries.append((relative / name).as_posix() + "/")
-            elif (Path(directory) / name).is_symlink():
+            elif is_link(Path(directory) / name):
                 names.append((relative / name).as_posix())
+                links.add(names[-1])
             else:
                 descend.append(name)
         subdirectories[:] = descend
         for filename in filenames:
             if filename == ".git":
                 git_entries.append((relative / filename).as_posix())
-            else:
-                names.append((relative / filename).as_posix())
-    return sorted(names), sorted(git_entries)
+                continue
+            names.append((relative / filename).as_posix())
+            if is_link(Path(directory) / filename):
+                links.add(names[-1])
+    return sorted(names), links, sorted(git_entries)
+
+
+def read_inside(source: Path, name: str) -> bytes:
+    """A packaged file's bytes, refused if its real path leaves the source folder."""
+    path = source / name
+    if not path.resolve(strict=True).is_relative_to(source):
+        raise BuildError(f"{name} resolves outside the source folder; refusing to package it.")
+    return path.read_bytes()
 
 
 def read_allowlist(path: Path) -> list[str]:
@@ -296,7 +334,7 @@ def select(
     in_git = inside_git_work_tree(source)
     if mode == "git-tracked" and not in_git:
         raise BuildError("--git-tracked needs a source folder inside a git work tree.")
-    walked, git_entries = walk(source)
+    walked, links, git_entries = walk(source)
     ignored = git_ignored(source, walked) if in_git else set()
     shown_ignored = collapse(walked, ignored)
     excluded = {entry: "git metadata, never packaged" for entry in git_entries}
@@ -321,8 +359,8 @@ def select(
         rule = default_exclude(name)
         if name in ignored:
             shown, reason = shown_ignored[name], "git-ignored, never packaged"
-        elif (source / name).is_symlink():
-            shown, reason = name, "symbolic link, never packaged"
+        elif name in links:
+            shown, reason = name, "symbolic link or junction, never packaged"
         elif rule is not None and not included(name, includes):
             shown, reason = rule[0], f"default exclude {rule[1]}; --include overrides it"
         elif allowlist is not None and name not in listed:
@@ -368,7 +406,7 @@ def build(
     if missing:
         raise BuildError("Required package paths are missing: " + ", ".join(missing))
 
-    contents = {name: (source / name).read_bytes() for name in names}
+    contents = {name: read_inside(source, name) for name in names}
     compression = zipfile.ZIP_STORED if stored else zipfile.ZIP_DEFLATED
     temporary = output.with_suffix(output.suffix + ".tmp")
     temporary.unlink(missing_ok=True)

@@ -239,9 +239,7 @@ class GitFailureTest(BuilderTestCase):
         self.assert_refused(self.build_with(dict(os.environ)), "fatal:")
 
     def test_a_failing_git_in_process(self) -> None:
-        spec = importlib.util.spec_from_file_location("build_repository_zip_probe", BUILDER)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_builder()
         refusal = subprocess.CompletedProcess([], 128, b"", b"fatal: detected dubious ownership\n")
         for outcome in (refusal, OSError("git cannot start")):
             with self.subTest(outcome=outcome):
@@ -322,10 +320,55 @@ class DeterminismTest(BuilderTestCase):
     @unittest.skipUnless(symlinks_supported(), "symbolic links need extra privileges here")
     def test_symbolic_links_are_never_packaged(self) -> None:
         os.symlink(self.source / "README.md", self.source / "linked.md")
-        returncode, payload, stderr = self.build("--include", "linked.md")
+        outside = self.base / "outside"
+        write_files(outside, {"private.txt": "placeholder\n"})
+        os.symlink(outside, self.source / "linked-folder", target_is_directory=True)
+        returncode, payload, stderr = self.build("--include", "linked.md", "--include", "linked-folder")
         self.assertEqual(returncode, 0, stderr)
-        self.assertNotIn("linked.md", payload["packaged"])
-        self.assertEqual(self.excluded(payload)["linked.md"], "symbolic link, never packaged")
+        for name in ("linked.md", "linked-folder"):
+            self.assertNotIn(name, payload["packaged"])
+            self.assertEqual(self.excluded(payload)[name], "symbolic link or junction, never packaged")
+        self.assertNotIn("linked-folder/private.txt", payload["packaged"])
+
+
+def load_builder() -> object:
+    spec = importlib.util.spec_from_file_location("build_repository_zip_probe", BUILDER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@unittest.skipUnless(os.name == "nt", "junctions are a Windows feature")
+class JunctionTest(BuilderTestCase):
+    """A junction needs no privilege to create, and pathlib does not call it a link."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.outside = self.base / "outside"
+        write_files(self.outside, {"private.txt": "placeholder\n"})
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(self.source / "linked"), str(self.outside)],
+            check=True,
+            capture_output=True,
+        )
+        self.assertFalse((self.source / "linked").is_symlink())
+
+    def test_a_junction_is_never_followed(self) -> None:
+        returncode, payload, stderr = self.build("--include", "linked", "--stored")
+        self.assertEqual(returncode, 0, stderr)
+        self.assertNotIn("linked/private.txt", payload["packaged"])
+        self.assertEqual(self.excluded(payload)["linked"], "symbolic link or junction, never packaged")
+        self.assertNotIn("linked/private.txt", self.archive_names())
+        self.assertTrue((self.outside / "private.txt").is_file())
+
+    def test_a_file_whose_real_path_leaves_the_source_is_refused(self) -> None:
+        # With link detection disabled the walk enters the junction; the
+        # real-path check must still refuse the file behind it.
+        module = load_builder()
+        with mock.patch.object(module, "is_link", return_value=False):
+            with self.assertRaisesRegex(module.BuildError, "linked/private.txt resolves outside the source"):
+                module.build(self.source, self.base / "in-process.zip", [])
+        self.assertFalse((self.base / "in-process.zip").exists())
 
 
 if __name__ == "__main__":
