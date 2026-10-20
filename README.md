@@ -10,7 +10,7 @@
   <a href="https://github.com/mewzicians/Skills-Folder/actions/workflows/verify.yml"><img src="https://github.com/mewzicians/Skills-Folder/actions/workflows/verify.yml/badge.svg?branch=main" alt="Verify skill suite workflow status"></a>
 </p>
 
-<p align="center"><strong>Version 1.1.0. The installer is tested on Windows in temporary folders. The plugin routes, and runs on macOS and Linux, are documented but not yet verified.</strong></p>
+<p align="center"><strong>Version 1.1.0. The installer is tested on Windows in temporary folders. The plugin routes, the hosts loading the installed skills, and runs on macOS and Linux are documented but not yet verified.</strong></p>
 
 <p align="center">
   <a href="#install"><img src=".github/assets/nav-install.svg" height="40" alt="Install"></a>
@@ -68,10 +68,11 @@ themselves stay generic.
 
 ## The 12 skills
 
-Skills marked **explicit only** have side effects, so they run only when you
-name them: type `$game-release` in Codex, or `/game-release` in Claude Code.
-The others can also start on their own when your request matches their
-description.
+Skills marked **explicit only** have side effects, so they are meant to run
+only when you name them: type `$game-release` in Codex, or `/game-release` in
+Claude Code. Codex enforces this; Claude Code relies on the description's
+wording (see [Supported hosts](#supported-hosts)). The other skills can also
+start on their own when your request matches their description.
 
 | Skill | What it helps with |
 | --- | --- |
