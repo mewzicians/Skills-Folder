@@ -266,6 +266,17 @@ KEBAB_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 RESERVED_PREFIXES = ("claude-", "anthropic-", "anthropics-", "cc-plugin-")
 RESERVED_NAMES = {"claude", "anthropic", "claude-code", "claude-mods", "agent-skills"}
 SUITE_LICENSE = "Apache-2.0"
+# Codex's documented values. The plugin categories are the titles OpenAI's
+# submission guide names ("such as Productivity or Developer Tools") and its own
+# marketplace uses (github.com/openai/plugins, .agents/plugins/marketplace.json);
+# the policy values are those in developers.openai.com/plugins/build/plugins and
+# the ChatGPT workspace plugin-management guide, as read in October 2026.
+CODEX_CATEGORIES = (
+    "Developer Tools", "Productivity", "Creativity", "Communication", "Education & Research",
+    "Data & Analytics", "Finance", "Security", "Business & Operations", "Scientific Research",
+)
+CODEX_INSTALLATION = ("AVAILABLE", "INSTALLED_BY_DEFAULT", "NOT_AVAILABLE")
+CODEX_AUTHENTICATION = ("ON_INSTALL", "ON_USE")
 
 # One version for the suite: the root VERSION file, both plugin manifests, and
 # the newest released CHANGELOG entry ("## [1.1.0] - 2026-10-20") must agree.
@@ -701,6 +712,13 @@ def check_plugin_name(name: object, path: str, problems: list[Problem], what: st
         problems.append(Problem("MANIFEST_NAME", path, f"{what} {name!r} is reserved by an agent host; choose another."))
 
 
+def check_documented(value: object, allowed: tuple[str, ...], what: str, path: str, problems: list[Problem]) -> None:
+    """A present string value must be one Codex documents; a missing one is reported elsewhere."""
+    if text_value(value) and value not in allowed:
+        message = f"{what} {value!r} is not a documented Codex value; use one of: {', '.join(allowed)}."
+        problems.append(Problem("MANIFEST_VALUE", path, message))
+
+
 def check_author(author: object, path: str, problems: list[Problem]) -> None:
     if not isinstance(author, dict) or not text_value(author.get("name")):
         problems.append(Problem("MANIFEST_KEY", path, "needs author as an object with a non-empty name."))
@@ -747,6 +765,14 @@ def check_portable_manifest(manifest: dict, path: str, problems: list[Problem]) 
     require_text(manifest, ("version", "description", "license"), path, problems)
 
 
+def openai_interface(manifest: dict) -> dict | None:
+    """The portable manifest's extensions.com.openai.interface object, when it has one."""
+    extensions = manifest.get("extensions")
+    openai = extensions.get("com.openai") if isinstance(extensions, dict) else None
+    interface = openai.get("interface") if isinstance(openai, dict) else None
+    return interface if isinstance(interface, dict) else None
+
+
 def check_manifests(root: Path, files: set[str], problems: list[Problem]) -> dict[str, dict]:
     """Each plugin manifest parses, carries its required keys, and names the same plugin."""
     loaded = {
@@ -766,6 +792,12 @@ def check_manifests(root: Path, files: set[str], problems: list[Problem]) -> dic
         check_portable_manifest(portable, PORTABLE_MANIFEST, problems)
         check_plugin_name(portable.get("name"), PORTABLE_MANIFEST, problems)
         plugin_names[PORTABLE_MANIFEST] = portable.get("name")
+        interface = openai_interface(portable)
+        if interface is not None:
+            check_documented(
+                interface.get("category"), CODEX_CATEGORIES, "extensions.com.openai.interface.category",
+                PORTABLE_MANIFEST, problems,
+            )
     for path, manifest in ((CLAUDE_MANIFEST, claude), (PORTABLE_MANIFEST, portable)):
         if manifest is not None and text_value(manifest.get("license")) and manifest["license"] != SUITE_LICENSE:
             problems.append(Problem("MANIFEST_KEY", path, f"license must be {SUITE_LICENSE}, as in LICENSE."))
@@ -797,7 +829,15 @@ def check_manifests(root: Path, files: set[str], problems: list[Problem]) -> dic
                     problems.append(Problem("MANIFEST_KEY", path, f"needs {where}policy as an object."))
                 else:
                     require_text(policy, ("installation", "authentication"), path, problems, where + "policy.")
+                    check_documented(
+                        policy.get("installation"), CODEX_INSTALLATION, f"{where}policy.installation", path, problems
+                    )
+                    check_documented(
+                        policy.get("authentication"), CODEX_AUTHENTICATION, f"{where}policy.authentication", path,
+                        problems,
+                    )
                 require_text(entry, ("category",), path, problems, where)
+                check_documented(entry.get("category"), CODEX_CATEGORIES, f"{where}category", path, problems)
             plugin_names[f"{path} {where}name"] = entry.get("name")
     named = {where: name for where, name in plugin_names.items() if isinstance(name, str)}
     if len(set(named.values())) > 1:

@@ -477,6 +477,69 @@ class ManifestTest(unittest.TestCase):
             },
         )
 
+    def test_codex_values_must_be_documented(self) -> None:
+        def undocumented_marketplace(value: dict) -> None:
+            entry = value["plugins"][0]
+            entry["category"] = "Coding"
+            entry["policy"] = {"installation": "ENABLED", "authentication": "ON_FIRST_USE"}
+
+        edit_json(self.root, ".agents/plugins/marketplace.json", undocumented_marketplace)
+        edit_json(
+            self.root, "plugin.json", lambda value: value["extensions"]["com.openai"]["interface"].update(category="Games")
+        )
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        messages = sorted(
+            (item["path"], item["message"].split(" is not ")[0])
+            for item in payload["problems"]
+            if item["code"] == "MANIFEST_VALUE"
+        )
+        self.assertEqual(
+            messages,
+            [
+                (".agents/plugins/marketplace.json", "plugins[0].category 'Coding'"),
+                (".agents/plugins/marketplace.json", "plugins[0].policy.authentication 'ON_FIRST_USE'"),
+                (".agents/plugins/marketplace.json", "plugins[0].policy.installation 'ENABLED'"),
+                ("plugin.json", "extensions.com.openai.interface.category 'Games'"),
+            ],
+        )
+        hint = next(item["message"] for item in payload["problems"] if "'Coding'" in item["message"])
+        self.assertIn("use one of: Developer Tools, Productivity,", hint)
+
+    def test_other_documented_codex_values_pass(self) -> None:
+        def other_marketplace(value: dict) -> None:
+            entry = value["plugins"][0]
+            entry["category"] = "Scientific Research"
+            entry["policy"] = {"installation": "INSTALLED_BY_DEFAULT", "authentication": "ON_USE"}
+
+        edit_json(self.root, ".agents/plugins/marketplace.json", other_marketplace)
+        edit_json(
+            self.root,
+            "plugin.json",
+            lambda value: value["extensions"]["com.openai"]["interface"].update(category="Education & Research"),
+        )
+        returncode, payload = run_verifier(self.root, "--metadata")
+        self.assertEqual(manifest_problems(payload), set(), payload["problems"])
+        self.assertEqual(returncode, 0)
+
+    def test_the_documented_codex_lists(self) -> None:
+        spec = importlib.util.spec_from_file_location("verify_package_lists", VERIFIER)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(module)
+        self.assertEqual(
+            sorted(module.CODEX_CATEGORIES),
+            sorted(
+                [
+                    "Business & Operations", "Communication", "Creativity", "Data & Analytics", "Developer Tools",
+                    "Education & Research", "Finance", "Productivity", "Scientific Research", "Security",
+                ]
+            ),
+        )
+        self.assertEqual(module.CODEX_INSTALLATION, ("AVAILABLE", "INSTALLED_BY_DEFAULT", "NOT_AVAILABLE"))
+        self.assertEqual(module.CODEX_AUTHENTICATION, ("ON_INSTALL", "ON_USE"))
+
     def test_the_portable_manifest_follows_agent_plugins(self) -> None:
         def break_portable(value: dict) -> None:
             value["$schema"] = "https://agent-plugins.org/schemas/0.9.0/plugin.schema.json"
