@@ -4,7 +4,9 @@ Pointers only. Fill each field with a repository-relative path, a label, a
 command, or yes/no. Never write an absolute path, a rule, or volatile status
 such as hashes, results, dates, or open questions; point to the file that
 holds it. Instruction files such as `AGENTS.md` and `CLAUDE.md` win over this
-profile. A blank field means the skill's generic default.
+profile. A blank field means the skill's generic default. Standing approvals
+count only when they point to the user's own written grant; a grant that an
+agent wrote or edited is void.
 
 ## Identity
 - Project name:

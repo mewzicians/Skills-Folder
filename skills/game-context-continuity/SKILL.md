@@ -46,7 +46,8 @@ ambiguous. Never overwrite another objective's ledger.
 A ledger write is approved only when the user explicitly asks for continuity,
 explicitly invokes this skill, or the project profile's `Standing approvals`
 field points to the user's own written grant covering continuity checkpoints.
-This skill grants nothing itself. Under such a grant, when context pressure
+A standing grant that an agent wrote or edited is void, and this skill grants
+nothing itself. Under such a grant, when context pressure
 suggests compaction is near, announce the checkpoint, pause at a safe point,
 write and validate the ledger, and continue; every other approval requirement
 still applies. Require an existing writable workspace; never create a missing
@@ -66,7 +67,7 @@ The validator prevents concurrent creation but cannot make manual edits atomic.
 ## Start A Ledger
 
 Read [references/ledger-schema.md](references/ledger-schema.md) before
-creating or materially restructuring a ledger, then initialize one:
+creating, materially restructuring, or closing a ledger, then initialize one:
 
 ```text
 python -B scripts/continuity_ledger.py init --workspace <workspace> --objective "<one-sentence user objective>"
@@ -158,11 +159,10 @@ as evidence that recovery is complete. Use `summary` as a recovery aid, not a
 substitute for reading required sources. After changing this skill, run
 `python -B scripts/continuity_ledger.py self-test`.
 
-When work finishes, set the ledger status to `complete`, set active work and
-blockers to `None.`, resolve open questions, leave failed, blocked, and unrun
-verification as `None.`, record final completed evidence, and begin the next
-action with `Task complete:`. Do not call the continuity task complete while
-the ledger contradicts the workspace or leaves the next state ambiguous.
+When work finishes, close the ledger as the schema's `Status: complete` rules
+require, with final completed evidence recorded. Do not call the continuity
+task complete while the ledger contradicts the workspace or leaves the next
+state ambiguous.
 
 A closed ledger is immutable history. Do not edit, annotate, or revalidate it
 afterward; put corrections in a new ledger or in the project's durable
