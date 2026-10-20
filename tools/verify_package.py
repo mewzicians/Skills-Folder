@@ -19,11 +19,13 @@ import sys
 sys.dont_write_bytecode = True
 
 import argparse
+import fnmatch
 import importlib.util
 import json
 import os
 import re
 import subprocess
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import ModuleType
@@ -68,6 +70,9 @@ GENERATED_COPIES = {
     "skills/game-skill-auditor/scripts/skill_frontmatter.py": "tools/lib/skill_frontmatter.py",
 }
 COPY_HEADER = "# Generated copy of {source}. Edit that file, then recopy it below this line.\n"
+# Files that must stay byte-for-byte identical to one another. A pattern's
+# '*' matches one path part.
+IDENTICAL_GROUPS = ("skills/*/references/project-profile.md",)
 
 
 @dataclass(frozen=True)
@@ -255,6 +260,38 @@ def check_copies(root: Path, files: set[str], problems: list[Problem]) -> None:
             )
 
 
+def matches_parts(path: str, pattern: str) -> bool:
+    parts, wanted = PurePosixPath(path).parts, PurePosixPath(pattern).parts
+    return len(parts) == len(wanted) and all(
+        fnmatch.fnmatchcase(part, glob) for part, glob in zip(parts, wanted)
+    )
+
+
+def check_identical(root: Path, files: set[str], problems: list[Problem]) -> None:
+    """Report each copy that differs from the version most copies share."""
+    for pattern in IDENTICAL_GROUPS:
+        group = sorted(path for path in files if matches_parts(path, pattern))
+        contents = {path: (root / path).read_bytes() for path in group}
+        counts = Counter(contents.values())
+        if len(counts) < 2:
+            continue
+        # The majority wins. Counter keeps first-seen order and max() keeps the
+        # first maximum, so on a tie the alphabetically first copy wins.
+        expected = max(counts, key=counts.__getitem__)
+        reference = next(path for path in group if contents[path] == expected)
+        for path in group:
+            if contents[path] != expected:
+                problems.append(
+                    Problem(
+                        "IDENTICAL_DRIFT",
+                        path,
+                        f"differs from {reference}, which {counts[expected]} of the {len(group)} "
+                        f"files matching {pattern} share; keep them identical.",
+                        first_difference(contents[path], expected),
+                    )
+                )
+
+
 def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
     schema = load_schema()
     files = git_inventory(root)
@@ -282,6 +319,7 @@ def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
     for name in skills:
         check_skill(root, name, fileset, schema, problems)
     check_copies(root, fileset, problems)
+    check_identical(root, fileset, problems)
     for path in files:
         if is_debris(path):
             problems.append(Problem("DEBRIS", path, "is generated debris; delete it before packaging."))

@@ -1,8 +1,11 @@
 # Project Profile Routing
 
-Read `GAME_PROJECT_PROFILE.md` at the repository root when present. It maps
-implemented truth, stable design, decision status, handoff, tests, mirrors,
-packages, constraints, and project-specific terminology.
+Read `GAME_PROJECT_PROFILE.md` at the repository root when present. It points
+to implemented truth, stable design, decision and implementation status
+labels, readiness verdicts, handoff, tests, maintained deliverables,
+constraints, and project-specific terminology. Follow its pointers; it holds
+no rules of its own. Instruction files such as `AGENTS.md` and `CLAUDE.md` win
+over it, and a blank field means this skill's generic default.
 
 When absent, read repository guidance, identify these roles from current files,
 and state any uncertain mapping. Do not require conventional filenames, infer

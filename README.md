@@ -56,8 +56,10 @@ python -B tools/verify_package.py
 
 1. Copy `templates/GAME_PROJECT_PROFILE.template.md` into the game repository.
 2. Rename the copy to `GAME_PROJECT_PROFILE.md`.
-3. Fill in authoritative files, statuses, technical invariants, tests,
-   distribution paths, and project-specific extensions.
+3. Fill each field with a repository-relative path, label, command, or
+   yes/no. The profile only points to the files that hold rules and status;
+   the repository's instruction files win over it, and a blank field keeps
+   the generic default.
 4. Keep generic workflows in the skill core. Put game-specific terminology,
    mechanics, commands, and paths in the profile or focused references.
 

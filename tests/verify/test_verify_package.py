@@ -132,6 +132,8 @@ class FilesystemInventoryTest(unittest.TestCase):
         found = codes_by_path(payload)
         expected = {
             ("CRLF", "skills/game-plan/references/project-profile.md"),
+            # The CRLF copy no longer matches the other routing references.
+            ("IDENTICAL_DRIFT", "skills/game-plan/references/project-profile.md"),
             ("BOM", "NOTICE"),
             ("FRONTMATTER_NAME_FORMAT", "skills/game-debug/SKILL.md"),
             ("FRONTMATTER_NAME_FOLDER", "skills/game-debug/SKILL.md"),
@@ -251,6 +253,19 @@ class FilesystemInventoryTest(unittest.TestCase):
                 ("COPY_MISSING", "skills/game-skill-auditor/scripts/skill_frontmatter.py"),
             },
         )
+
+    def test_identical_copies_must_stay_identical(self) -> None:
+        drifted = self.root / "skills" / "game-debug" / "references" / "project-profile.md"
+        lines = drifted.read_bytes().split(b"\n")
+        lines[2] += b" Extra words."
+        drifted.write_bytes(b"\n".join(lines))
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            [(item["code"], item["path"], item["line"]) for item in payload["problems"]],
+            [("IDENTICAL_DRIFT", "skills/game-debug/references/project-profile.md", 3)],
+        )
+        self.assertIn("skills/game-balance-lab/references/project-profile.md", payload["problems"][0]["message"])
 
     def test_missing_files_and_prompts(self) -> None:
         (self.root / "skills" / "game-ux-audit" / "agents" / "openai.yaml").unlink()
