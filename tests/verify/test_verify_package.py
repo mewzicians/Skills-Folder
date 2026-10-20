@@ -522,6 +522,37 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(manifest_problems(payload), set(), payload["problems"])
         self.assertEqual(returncode, 0)
 
+    def test_listing_text_and_marketplace_titles(self) -> None:
+        def long_listing(value: dict) -> None:
+            interface = value["extensions"]["com.openai"]["interface"]
+            interface["shortDescription"] = "Plan, build, test, and release games"
+            interface.pop("longDescription")
+
+        def untitled_codex(value: dict) -> None:
+            value.pop("interface")
+
+        def described_in_metadata(value: dict) -> None:
+            value["metadata"] = {"description": value.pop("description")}
+
+        edit_json(self.root, "plugin.json", long_listing)
+        edit_json(self.root, ".agents/plugins/marketplace.json", untitled_codex)
+        edit_json(self.root, ".claude-plugin/marketplace.json", described_in_metadata)
+        returncode, payload = run_verifier(self.root, "--metadata")
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            sorted((item["code"], item["path"], item["message"]) for item in payload["problems"]),
+            [
+                ("MANIFEST_KEY", ".agents/plugins/marketplace.json", "needs a non-empty string interface.displayName."),
+                ("MANIFEST_KEY", ".claude-plugin/marketplace.json", "needs a non-empty string description."),
+                ("MANIFEST_KEY", "plugin.json", "needs a non-empty string extensions.com.openai.interface.longDescription."),
+                (
+                    "MANIFEST_VALUE",
+                    "plugin.json",
+                    "extensions.com.openai.interface.shortDescription has 36 characters; the limit is 30.",
+                ),
+            ],
+        )
+
     def test_the_documented_codex_lists(self) -> None:
         spec = importlib.util.spec_from_file_location("verify_package_lists", VERIFIER)
         module = importlib.util.module_from_spec(spec)

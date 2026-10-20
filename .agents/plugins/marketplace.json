@@ -1,5 +1,8 @@
 {
   "name": "skills-folder",
+  "interface": {
+    "displayName": "Skills Folder"
+  },
   "plugins": [
     {
       "name": "game-dev-skills",

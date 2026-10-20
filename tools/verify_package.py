@@ -277,6 +277,9 @@ CODEX_CATEGORIES = (
 )
 CODEX_INSTALLATION = ("AVAILABLE", "INSTALLED_BY_DEFAULT", "NOT_AVAILABLE")
 CODEX_AUTHENTICATION = ("ON_INSTALL", "ON_USE")
+# The listing fields this suite fills in extensions.com.openai.interface, with
+# the character limits developers.openai.com/plugins/deploy/submission sets.
+OPENAI_INTERFACE_LIMITS = {"displayName": 30, "shortDescription": 30, "longDescription": 4000, "developerName": 80}
 
 # One version for the suite: the root VERSION file, both plugin manifests, and
 # the newest released CHANGELOG entry ("## [1.1.0] - 2026-10-20") must agree.
@@ -794,10 +797,14 @@ def check_manifests(root: Path, files: set[str], problems: list[Problem]) -> dic
         plugin_names[PORTABLE_MANIFEST] = portable.get("name")
         interface = openai_interface(portable)
         if interface is not None:
-            check_documented(
-                interface.get("category"), CODEX_CATEGORIES, "extensions.com.openai.interface.category",
-                PORTABLE_MANIFEST, problems,
-            )
+            where = "extensions.com.openai.interface."
+            require_text(interface, tuple(OPENAI_INTERFACE_LIMITS) + ("category",), PORTABLE_MANIFEST, problems, where)
+            for key, limit in OPENAI_INTERFACE_LIMITS.items():
+                value = interface.get(key)
+                if text_value(value) and len(value) > limit:
+                    message = f"{where}{key} has {len(value)} characters; the limit is {limit}."
+                    problems.append(Problem("MANIFEST_VALUE", PORTABLE_MANIFEST, message))
+            check_documented(interface.get("category"), CODEX_CATEGORIES, f"{where}category", PORTABLE_MANIFEST, problems)
     for path, manifest in ((CLAUDE_MANIFEST, claude), (PORTABLE_MANIFEST, portable)):
         if manifest is not None and text_value(manifest.get("license")) and manifest["license"] != SUITE_LICENSE:
             problems.append(Problem("MANIFEST_KEY", path, f"license must be {SUITE_LICENSE}, as in LICENSE."))
@@ -811,6 +818,12 @@ def check_manifests(root: Path, files: set[str], problems: list[Problem]) -> dic
             owner = marketplace.get("owner")
             if not isinstance(owner, dict) or not text_value(owner.get("name")):
                 problems.append(Problem("MANIFEST_KEY", path, "needs owner as an object with a non-empty name."))
+            # Claude Code shows the top-level description; its validator warns without one.
+            require_text(marketplace, ("description",), path, problems)
+        else:
+            # The ChatGPT desktop app titles the marketplace with interface.displayName.
+            interface = marketplace.get("interface")
+            require_text(interface if isinstance(interface, dict) else {}, ("displayName",), path, problems, "interface.")
         entries = marketplace.get("plugins")
         if not isinstance(entries, list) or not entries or not all(isinstance(entry, dict) for entry in entries):
             problems.append(Problem("MANIFEST_KEY", path, "needs plugins as a non-empty list of objects."))

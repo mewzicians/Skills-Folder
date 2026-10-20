@@ -15,7 +15,8 @@
     "com.openai": {
       "interface": {
         "displayName": "Game Dev Skills",
-        "shortDescription": "Plan, build, test, and release games",
+        "shortDescription": "Plan, build, test, ship games",
+        "longDescription": "Twelve skills for building games with an AI coding agent: design planning, balance simulation, playtest analysis, implementation, debugging, usability audits, music composition, documentation cleanup, ship-readiness verification, release checks, continuity across long sessions, and skill auditing. For solo developers and small teams, on any engine or genre. An optional GAME_PROJECT_PROFILE.md in your project points the skills at your own rules, tests, and status files. The three skills with side effects, game-release, game-qa-cleanup, and game-full-verification, are meant to run only when you name them, and game-release stops before publishing until you say to publish.",
         "developerName": "mewzicians",
         "category": "Developer Tools"
       }
