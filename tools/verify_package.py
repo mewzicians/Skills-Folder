@@ -39,14 +39,14 @@ TOOLS = Path(__file__).resolve().parent
 ROOT = TOOLS.parent
 SCHEMA_PATH = TOOLS / "lib" / "skill_frontmatter.py"
 
-# Built from fragments, so this file never contains the term it forbids.
+# Built from fragments, so this file never contains the term it forbids. Any
+# run of whitespace, hyphens, or underscores may separate the two words, in any
+# case, so spaced names and slugs such as kebab, snake, and joined forms match.
 FORBIDDEN = re.compile(
     "(?i)"
-    + ("office" + r"\s*" + "wars")
+    + ("office" + r"[\s_-]*" + "wars")
     + "|"
-    + ("office" + "wars")
-    + "|"
-    + ("offie" + r"\s+" + "war")
+    + ("offie" + r"[\s_-]*" + "war")
 )
 BINARY_SUFFIXES = {
     ".gif",

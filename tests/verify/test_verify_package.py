@@ -145,6 +145,36 @@ class FilesystemInventoryTest(unittest.TestCase):
         messages = [item["message"] for item in payload["problems"]]
         self.assertEqual(len(messages), len(set(messages)), "each problem needs its own message")
 
+    def test_product_name_slugs_are_forbidden(self) -> None:
+        # Built from fragments so this file never contains a form it plants.
+        first, second = "office", "wars"
+        other_first, other_second = "off" + "ie", "war"
+        forms = {
+            "spaced": first.title() + " " + second.title(),
+            "joined": first + second,
+            "kebab": first + "-" + second,
+            "snake": first + "_" + second,
+            "upper-kebab": (first + "-" + second).upper(),
+            "no-break-space": first.title() + "\u00a0" + second.title(),
+            "other-spaced": other_first + " " + other_second,
+            "other-kebab": other_first + "-" + other_second,
+            "other-snake": other_first.title() + "_" + other_second.title(),
+        }
+        docs = self.root / "docs"
+        for label, form in forms.items():
+            (docs / f"slug-{label}.md").write_text(f"Built for {form}.\n", encoding="utf-8", newline="\n")
+        slug_folder = docs / (first + "-" + second)
+        slug_folder.mkdir()
+        (slug_folder / "notes.md").write_text("Notes.\n", encoding="utf-8", newline="\n")
+        (docs / "near-misses.md").write_text(
+            "A box office hit, office work, and war games.\n", encoding="utf-8", newline="\n"
+        )
+        returncode, payload = run_verifier(self.root)
+        expected = {("FORBIDDEN_TERM", f"docs/slug-{label}.md") for label in forms}
+        expected.add(("FORBIDDEN_TERM", f"docs/{first}-{second}/notes.md"))
+        self.assertEqual(returncode, 1)
+        self.assertEqual(codes_by_path(payload), expected, payload["problems"])
+
     def test_git_metadata_is_excluded_by_path_part(self) -> None:
         # A worktree or submodule has a .git file; nested .git folders also occur.
         (self.root / ".git").write_text("gitdir: /nowhere\n", encoding="utf-8", newline="\n")
