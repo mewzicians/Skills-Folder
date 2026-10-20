@@ -744,7 +744,16 @@ def replay_validator(
     script_path: Path,
     arguments: list[str],
     target_path: Path,
+    *,
+    isolated: bool,
 ) -> subprocess.CompletedProcess[str] | None:
+    """Rerun a trusted structural validator on the target.
+
+    The auditor's own scripts need only the standard library, so they run
+    with -I: no PYTHON* variable, user site-packages, or module beside the
+    script can change their result. Codex's validator imports PyYAML, which
+    may be installed only in user site-packages, so it runs without -I.
+    """
     replay_arguments = [
         argument if argument.startswith("--") else str(target_path)
         for argument in arguments
@@ -754,6 +763,7 @@ def replay_validator(
             [
                 sys.executable,
                 "-B",
+                *(["-I"] if isolated else []),
                 str(script_path),
                 *replay_arguments,
             ],
@@ -838,15 +848,21 @@ def valid_structural_test(
             )
         else:
             trusted_validator = script_path == host_validator
+        # Never run a script the manifest names unless it is trusted.
+        if not trusted_validator or len(arguments) != 1:
+            return False
         try:
             output_text = output_path.read_text(encoding="utf-8-sig")
         except (OSError, UnicodeDecodeError):
             return False
-        replay = replay_validator(script_path, arguments, target_path)
+        replay = replay_validator(
+            script_path,
+            arguments,
+            target_path,
+            isolated=script_path == bundled_validator,
+        )
         return (
-            trusted_validator
-            and len(arguments) == 1
-            and "Skill is valid!" in output_text
+            "Skill is valid!" in output_text
             and replay is not None
             and replay.returncode == 0
             and "Skill is valid!" in replay.stdout
@@ -861,7 +877,9 @@ def valid_structural_test(
             else None
         )
         expected_bundled = Path(__file__).resolve().with_name("audit_skill.py")
-        replay = replay_validator(script_path, arguments, target_path)
+        if script_path != expected_bundled:
+            return False
+        replay = replay_validator(script_path, arguments, target_path, isolated=True)
         try:
             replay_payload = (
                 json.loads(replay.stdout)

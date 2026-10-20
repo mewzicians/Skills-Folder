@@ -320,6 +320,52 @@ class SelfTestFlagsTest(unittest.TestCase):
         self.assertEqual(self.child_flags(["-B"]), ["-B"])
 
 
+class SelfTestHostValidatorTest(unittest.TestCase):
+    """--host-validator without PyYAML stops with exit 2 before running any probe."""
+
+    def test_missing_pyyaml_exits_2(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="host-validator-") as temp:
+            root = Path(temp)
+            codex_home = root / "codex"
+            validator = codex_home / "skills" / ".system" / "skill-creator" / "scripts" / "quick_validate.py"
+            validator.parent.mkdir(parents=True)
+            validator.write_text("raise SystemExit('a probe must not run this')\n", encoding="utf-8", newline="\n")
+            # A yaml module that cannot be imported, whether or not PyYAML is installed.
+            blocker = root / "no-yaml"
+            blocker.mkdir()
+            (blocker / "yaml.py").write_text("raise ImportError('blocked for this test')\n", encoding="utf-8", newline="\n")
+            env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", CODEX_HOME=str(codex_home), PYTHONPATH=str(blocker))
+            env.pop("PYTHONWARNINGS", None)
+            completed = subprocess.run(
+                [sys.executable, *CHILD_FLAGS, str(SELF_TEST), "--host-validator"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                check=False,
+            )
+        self.assertEqual(completed.returncode, 2, completed.stdout[-400:] + completed.stderr)
+        self.assertEqual(completed.stdout, "")
+        self.assertIn("'import yaml' fails", completed.stderr)
+
+
+class AssessorReplayTest(unittest.TestCase):
+    """The assessor replays its own scripts isolated and never runs an untrusted one."""
+
+    def setUp(self) -> None:
+        self.assessor = load_script(AUDITOR / "scripts" / "assess_evidence.py", "assess_evidence_replay")
+
+    def test_bundled_scripts_replay_with_isolation(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, "Skill is valid!\n", "")
+        with mock.patch.object(self.assessor.subprocess, "run", return_value=completed) as run:
+            self.assessor.replay_validator(VALIDATOR, ["target"], AUDITOR, isolated=True)
+            self.assessor.replay_validator(VALIDATOR, ["target"], AUDITOR, isolated=False)
+        isolated, plain = (call.args[0] for call in run.call_args_list)
+        self.assertEqual(isolated[1:4], ["-B", "-I", str(VALIDATOR)])
+        self.assertEqual(plain[1:3], ["-B", str(VALIDATOR)])
+
+
 class AssessorIdentityTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="skill-scripts-")

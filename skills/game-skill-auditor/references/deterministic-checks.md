@@ -40,7 +40,9 @@ python -B scripts/self_test.py
 
 By default it replays the bundled validator, so it needs no host installation.
 Add `--host-validator` to replay Codex's installed validator instead, which
-needs PyYAML. The suite must report exact expected readiness for every
+needs PyYAML; without it the self-test exits 2 before any probe runs. The
+assessor replays its own bundled scripts with `-I`, and replays no script
+it does not trust. The suite must report exact expected readiness for every
 positive and negative probe, not merely the absence of over-awards.
 
 ## Evidence Assessor

@@ -2425,6 +2425,20 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def pyyaml_importable() -> bool:
+    """Whether Codex's validator could import PyYAML when the assessor replays it.
+
+    The check runs a child exactly as the assessor replays Codex's validator,
+    so it sees the same interpreter, environment, and site-packages.
+    """
+    completed = subprocess.run(
+        [sys.executable, "-B", "-c", "import yaml"],
+        check=False,
+        capture_output=True,
+    )
+    return completed.returncode == 0
+
+
 def run(argv: list[str] | None = None) -> int:
     global OFFICIAL_VALIDATOR
     configure_stdio()
@@ -2434,6 +2448,15 @@ def run(argv: list[str] | None = None) -> int:
         print(
             f"self_test.py: the structural validator {OFFICIAL_VALIDATOR} "
             "does not exist.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.host_validator and not pyyaml_importable():
+        print(
+            "self_test.py: --host-validator replays Codex's validator, which imports "
+            f"PyYAML, but 'import yaml' fails under {sys.executable}. Install PyYAML "
+            "for that interpreter, or omit --host-validator to replay the bundled "
+            "validator, which needs only the standard library.",
             file=sys.stderr,
         )
         return 2
