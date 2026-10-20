@@ -108,4 +108,3 @@ install-skills.ps1         Backup-preserving suite installer
 ## License
 
 Licensed under Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
-Bundled upstream components retain their included license notices.
