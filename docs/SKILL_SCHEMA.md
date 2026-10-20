@@ -203,7 +203,10 @@ python -B tools/verify_package.py --budgets
 - `tools/validate_skill.py` is the suite's frontmatter gate.
 - The auditor carries a generated copy of this module,
   `skills/game-skill-auditor/scripts/skill_frontmatter.py`, behind its own
-  `scripts/validate_skill.py`, which checks one skill at the spec level. The
+  `scripts/validate_skill.py`, which checks one skill at the spec level and
+  also fails on the findings that Codex's validator rejects but the spec
+  level only warns about or allows, such as `TAB`, `UNKNOWN_KEY`,
+  `CLAUDE_ONLY_KEY`, and `COMPATIBILITY_KEY`. The
   auditor's evidence check pins both files' hashes, so a machine with neither
   PyYAML nor Codex can still produce structural evidence.
   `tools/verify_package.py` fails if the copy differs from this module after

@@ -41,6 +41,10 @@ GENERATED_ARTIFACT_NAMES = {
 }
 NAME_PATTERN = re.compile(r"^[a-z0-9-]+$")
 FRONTMATTER_PATTERN = re.compile(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL)
+# Anything outside YAML's printable set, apart from line breaks and tabs.
+YAML_DISALLOWED = re.compile(
+    r"[^\t\n\r\x20-\x7E\x85\xA0-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]"
+)
 MARKDOWN_LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 ABSOLUTE_PATH_PATTERN = re.compile(
     r"(?:"
@@ -83,6 +87,30 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], list[dict[str, str]]]:
             issue("ERROR", "FRONTMATTER", "Missing or invalid YAML frontmatter.", "SKILL.md")
         )
         return {}, findings
+
+    # Split on LF only: splitlines() would consume a form feed or other
+    # control character as a line break and hide it.
+    for line_number, line in enumerate(match.group(1).split("\n"), start=2):
+        line = line.removesuffix("\r")
+        if "\t" in line:
+            findings.append(
+                issue(
+                    "WARN",
+                    "FRONTMATTER_TAB",
+                    "Frontmatter contains a tab. PyYAML, and so Codex's validator, rejects "
+                    "tabs outside quoted values; use spaces.",
+                    f"SKILL.md:{line_number}",
+                )
+            )
+        if YAML_DISALLOWED.search(line):
+            findings.append(
+                issue(
+                    "ERROR",
+                    "FRONTMATTER_CHARACTER",
+                    "Frontmatter contains a control character or another character YAML does not allow.",
+                    f"SKILL.md:{line_number}",
+                )
+            )
 
     values: dict[str, str] = {}
     for line_number, line in enumerate(match.group(1).splitlines(), start=2):

@@ -16,6 +16,14 @@ python -B scripts/audit_skill.py <path-to-skill> --strict
 Use `--json` for machine-readable results and `--strict` when warnings should
 fail a release gate.
 
+The validator checks the Agent Skills specification and also fails on
+everything Codex's validator rejects, even where the specification allows
+it: tabs, a byte-order mark, keys other than `name`, `description`,
+`license`, `allowed-tools`, and `metadata` (so `compatibility` and Claude
+Code-only keys too), `<` or `>` in the description, and unfinished
+`[TODO: ...]` lines. It only warns about other portability concerns, such as
+CRLF line endings. The strict audit also fails on a tab in the frontmatter.
+
 The bundled audit checks structure, frontmatter, folder naming, trigger
 language, placeholders, length, Markdown references, Python syntax, resource
 layout, portability risks, and `agents/openai.yaml`. Treat its findings as

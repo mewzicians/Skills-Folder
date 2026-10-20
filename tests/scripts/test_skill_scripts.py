@@ -157,6 +157,31 @@ class AuditorEncodingTest(unittest.TestCase):
         self.assertEqual(returncode, 1)
         self.assertEqual(self.encoding_findings(findings), [("ERROR", "agents/openai.yaml")])
 
+    def frontmatter_findings(self, old: bytes, new: bytes, *flags: str) -> tuple[int, list[tuple[str, str, str]]]:
+        skill = self.package / "SKILL.md"
+        data = skill.read_bytes()
+        self.assertIn(old, data)
+        skill.write_bytes(data.replace(old, new, 1))
+        completed = run_python(str(AUDIT_SCRIPT), str(self.package), "--json", *flags)
+        self.assertIn(completed.returncode, (0, 1), completed.stderr)
+        findings = json.loads(completed.stdout)["findings"]
+        wanted = {"FRONTMATTER_TAB", "FRONTMATTER_CHARACTER"}
+        return completed.returncode, [
+            (item["severity"], item["code"], item["location"]) for item in findings if item["code"] in wanted
+        ]
+
+    def test_a_tab_in_frontmatter_fails_strict(self) -> None:
+        returncode, found = self.frontmatter_findings(b"description: ", b"description:\t", "--strict")
+        self.assertEqual((returncode, found), (1, [("WARN", "FRONTMATTER_TAB", "SKILL.md:3")]))
+
+    def test_a_tab_indent_in_frontmatter_is_reported(self) -> None:
+        returncode, found = self.frontmatter_findings(b"\n---\n", b"\nmetadata:\n\tversion: '1'\n---\n")
+        self.assertEqual((returncode, found), (0, [("WARN", "FRONTMATTER_TAB", "SKILL.md:5")]))
+
+    def test_a_control_character_in_frontmatter_is_an_error(self) -> None:
+        returncode, found = self.frontmatter_findings(b"description: Continue", b"description: Continue\x0c")
+        self.assertEqual((returncode, found), (1, [("ERROR", "FRONTMATTER_CHARACTER", "SKILL.md:3")]))
+
 
 class BundledValidatorTest(unittest.TestCase):
     """The auditor's own structural validator needs neither PyYAML nor a host install."""
@@ -192,6 +217,46 @@ class BundledValidatorTest(unittest.TestCase):
         self.assertIn("error NAME_FORMAT", completed.stdout)
         self.assertTrue(completed.stdout.endswith("Skill is invalid.\n"), completed.stdout)
         self.assertNotIn("Skill is valid!", completed.stdout)
+
+    def mutate(self, old: bytes, new: bytes) -> None:
+        skill = self.package / "SKILL.md"
+        data = skill.read_bytes()
+        self.assertIn(old, data)
+        skill.write_bytes(data.replace(old, new, 1))
+
+    def test_what_codex_rejects_is_an_error(self) -> None:
+        # Each of these is only a warning, or not reported, at the spec level.
+        line_separator = chr(0x2028).encode("utf-8")
+        cases = {
+            "TAB": (b"description: ", b"description:\t"),
+            "UNKNOWN_KEY": (b"name: game-plan\n", b"name: game-plan\nowner: someone\n"),
+            "CLAUDE_ONLY_KEY": (b"name: game-plan\n", b"name: game-plan\nmodel: some-model\n"),
+            "COMPATIBILITY_KEY": (b"name: game-plan\n", b"name: game-plan\ncompatibility: Any host.\n"),
+            "DESCRIPTION_ANGLE_BRACKETS": (b"description: Continue", b"description: Continue <now>"),
+            "DELIMITER_SPACING": (b"---\nname:", b"--- \nname:"),
+            "UNICODE_LINE_BREAK": (b"description: Continue", b"description: Continue" + line_separator),
+            "TODO_PLACEHOLDER": (b"\n# Game Plan\n", b"\n# Game Plan\n\n[TODO: finish this]\n"),
+            "BOM": (b"---\nname:", BOM + b"---\nname:"),
+        }
+        original = (self.package / "SKILL.md").read_bytes()
+        for code, (old, new) in cases.items():
+            with self.subTest(code=code):
+                (self.package / "SKILL.md").write_bytes(original)
+                self.mutate(old, new)
+                completed = self.validate(str(self.package))
+                self.assertEqual(completed.returncode, 1, completed.stdout + completed.stderr)
+                self.assertIn(f"error {code}:", completed.stdout)
+                self.assertIn("Codex's validator rejects this.", completed.stdout)
+                self.assertTrue(completed.stdout.endswith("Skill is invalid.\n"), completed.stdout)
+
+    def test_crlf_is_only_a_warning(self) -> None:
+        # Codex's validator reads SKILL.md in text mode, so CRLF reaches it as LF.
+        skill = self.package / "SKILL.md"
+        skill.write_bytes(skill.read_bytes().replace(b"\n", b"\r\n"))
+        completed = self.validate(str(self.package))
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertIn("warning CRLF:", completed.stdout)
+        self.assertTrue(completed.stdout.endswith("Skill is valid!\n"), completed.stdout)
 
     def test_usage_errors_exit_2(self) -> None:
         for arguments in ((), (str(self.package), str(self.package)), ("--level",)):

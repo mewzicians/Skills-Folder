@@ -46,7 +46,7 @@ STRUCTURAL_TEST_IDS = {"official-validator", "bundled-audit"}
 # beside this file. The pair is trusted only while both hashes match, so edit
 # either file and these pins together.
 BUNDLED_VALIDATOR_SHA256 = (
-    "a61de88f9532741863281b4eaff222fc28824b890f1e4da44a6e806e6ce87974"
+    "b131f0d99427e2095c4d2bf98a3e34cf05335c040c426884cf9b07655d491aae"
 )
 BUNDLED_SCHEMA_SHA256 = (
     "ecb79aebfe3aef57ef03783062a9314f4fc0f1b37164edcb1b20f50db64046b7"

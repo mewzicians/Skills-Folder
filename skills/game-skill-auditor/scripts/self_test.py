@@ -23,6 +23,9 @@ SCORER = TARGET / "scripts" / "assess_evidence.py"
 BUNDLED_VALIDATOR = TARGET / "scripts" / "validate_skill.py"
 # The structural validator the probes record and replay. run() sets it.
 OFFICIAL_VALIDATOR = BUNDLED_VALIDATOR
+# The package the probes audit. A retargeted probe points it at an edited
+# copy while it builds that probe's evidence, then restores it.
+AUDIT_TARGET = TARGET
 
 # Probe paths. run() creates a fresh probe folder, sets these, and removes the
 # folder when it finishes or fails, so importing this module creates nothing.
@@ -292,7 +295,7 @@ def plant_mutation(mutated_package: Path, category: str) -> tuple[list[str], str
 def build_example() -> dict:
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
     write_text_atomic(EVIDENCE_FILE, "Verified test evidence.\n")
-    target_digest = package_digest(TARGET)
+    target_digest = package_digest(AUDIT_TARGET)
     roles = [
         role_entry(
             "contract",
@@ -418,7 +421,7 @@ def build_example() -> dict:
     bundled_output = write_json_artifact(
         "bundled-audit-output.json",
         {
-            "skill_path": str(TARGET.resolve()),
+            "skill_path": str(AUDIT_TARGET.resolve()),
             "findings": [],
             "summary": {"errors": 0, "warnings": 0},
         },
@@ -447,9 +450,9 @@ def build_example() -> dict:
                     "script_ref": str(script),
                     "script_sha256": sha256_file(script),
                     "arguments": (
-                        [str(TARGET)]
+                        [str(AUDIT_TARGET)]
                         if test_id == "official-validator"
-                        else [str(TARGET), "--strict", "--json"]
+                        else [str(AUDIT_TARGET), "--strict", "--json"]
                     ),
                 },
                 "exit_code": 0,
@@ -580,7 +583,7 @@ def build_example() -> dict:
         mutated_package = EVIDENCE_DIR / f"mutation-package-{mutation_id}"
         if mutated_package.exists():
             shutil.rmtree(mutated_package)
-        shutil.copytree(TARGET, mutated_package)
+        shutil.copytree(AUDIT_TARGET, mutated_package)
         changed_paths, defect_description, expected_failure = plant_mutation(
             mutated_package,
             category,
@@ -659,7 +662,7 @@ def build_example() -> dict:
         "mode": "audit",
         "contract_version": "1",
         "contract_frozen_at": "2026-08-14T00:00:00Z",
-        "target": str(TARGET),
+        "target": str(AUDIT_TARGET),
         "target_actor_id": "target-skill",
         "evidence_root": str(EVIDENCE_DIR),
         "requirements": requirements,
@@ -1797,6 +1800,55 @@ def acceptance_before_holdout(manifest: dict) -> None:
     )
 
 
+def retarget(manifest: dict, label: str, edit: Callable[[Path], None] | None) -> None:
+    """Replace the manifest with full-ready evidence for an edited copy of the target.
+
+    The copy's evidence is built in its own folder exactly as the main
+    example is, so every record is bound to the copy's digest and the edit
+    is the only difference from full_claim_control.
+    """
+    global AUDIT_TARGET
+    names = (
+        "OUT_DIR", "ROOT", "EVIDENCE_DIR", "EVIDENCE_FILE", "HOLDOUT_FILE",
+        "ACCEPTANCE_FILE", "EXTERNAL_REVIEW_FILE", "AUDIT_BEFORE_PACKAGE",
+        "AUDIT_AFTER_PACKAGE", "REPAIR_BEFORE_PACKAGE", "REPAIR_AFTER_PACKAGE",
+        "UNRELATED_BEFORE_PACKAGE",
+    )
+    saved = {name: globals()[name] for name in names}
+    base = OUT_DIR / f"retarget-{label}"
+    copy_path = base / "target" / TARGET.name
+    shutil.copytree(TARGET, copy_path)
+    if edit is not None:
+        edit(copy_path / "SKILL.md")
+    try:
+        configure_paths(base / "probes")
+        OUT_DIR.mkdir()
+        AUDIT_TARGET = copy_path
+        rebuilt = full_ready(prepare_example())
+        rebuilt["_external_review_file"] = str(EXTERNAL_REVIEW_FILE)
+        rebuilt["_user_acceptance_file"] = str(ACCEPTANCE_FILE)
+    finally:
+        globals().update(saved)
+        AUDIT_TARGET = TARGET
+    manifest.clear()
+    manifest.update(rebuilt)
+
+
+def tab_after_description_key(skill: Path) -> None:
+    text = skill.read_text(encoding="utf-8")
+    if "\ndescription: " not in text:
+        raise ValueError("The target SKILL.md has no 'description: ' line.")
+    write_text_atomic(skill, text.replace("\ndescription: ", "\ndescription:\t", 1))
+
+
+def retargeted_copy_control(manifest: dict) -> None:
+    retarget(manifest, "copy-control", None)
+
+
+def tab_in_frontmatter(manifest: dict) -> None:
+    retarget(manifest, "tab-in-frontmatter", tab_after_description_key)
+
+
 Probe = tuple[str, str, str, Callable[[dict], None]]
 
 PROBES: list[Probe] = [
@@ -2268,6 +2320,18 @@ PROBES: list[Probe] = [
         "Requirements not produced by the contract role must block independence.",
         contract_actor_mismatch,
     ),
+    (
+        "retargeted_copy_control",
+        "User Validated",
+        "Evidence rebuilt for an unedited copy of the target must match full_claim_control.",
+        retargeted_copy_control,
+    ),
+    (
+        "tab_in_frontmatter",
+        "Not Validated",
+        "A tab after 'description:', which Codex's validator rejects, must fail the structural gate.",
+        tab_in_frontmatter,
+    ),
 ]
 
 DETAIL_EXPECTATIONS: dict[str, dict[str, bool]] = {
@@ -2335,6 +2399,15 @@ DETAIL_EXPECTATIONS: dict[str, dict[str, bool]] = {
         "independence_evidence_ready": False,
         "user_validation_evidence_ready": False,
     },
+    "retargeted_copy_control": {
+        "independence_evidence_ready": True,
+        "user_validation_evidence_ready": True,
+    },
+}
+# Probes whose blockers must include this text, so that they fail for the
+# reason they test and not for an unrelated one.
+BLOCKER_EXPECTATIONS: dict[str, str] = {
+    "tab_in_frontmatter": "Required structural checks failed",
 }
 
 
@@ -2372,8 +2445,9 @@ def run(argv: list[str] | None = None) -> int:
         shutil.rmtree(out_dir, ignore_errors=True)
 
 
-def run_probes(validator_label: str) -> int:
-    target_digest = package_digest(TARGET)
+def prepare_example() -> dict:
+    """Write the holdout, acceptance, and package snapshots, then build the example."""
+    target_digest = package_digest(AUDIT_TARGET)
     write_text_atomic(
         HOLDOUT_FILE,
         json.dumps(
@@ -2418,7 +2492,7 @@ def run_probes(validator_label: str) -> int:
     ):
         if package_path.exists():
             shutil.rmtree(package_path)
-        shutil.copytree(TARGET, package_path)
+        shutil.copytree(AUDIT_TARGET, package_path)
     before_skill = REPAIR_BEFORE_PACKAGE / "SKILL.md"
     write_text_atomic(
         before_skill,
@@ -2434,7 +2508,11 @@ def run_probes(validator_label: str) -> int:
             1,
         ),
     )
-    example = build_example()
+    return build_example()
+
+
+def run_probes(validator_label: str) -> int:
+    example = prepare_example()
     results = []
     for name, expected, rationale, mutate in PROBES:
         if name == "example_control":
@@ -2456,6 +2534,7 @@ def run_probes(validator_label: str) -> int:
         external_review_file = Path(
             manifest.pop("_external_review_file", EXTERNAL_REVIEW_FILE)
         )
+        acceptance_file = Path(manifest.pop("_user_acceptance_file", ACCEPTANCE_FILE))
         manifest["audit_id"] = name
         fixture = OUT_DIR / f"{name}.json"
         write_text_atomic(fixture, json.dumps(manifest, indent=2) + "\n")
@@ -2469,7 +2548,7 @@ def run_probes(validator_label: str) -> int:
                 "--external-review-file",
                 str(external_review_file),
                 "--user-acceptance-file",
-                str(ACCEPTANCE_FILE),
+                str(acceptance_file),
             ],
             check=False,
             capture_output=True,
@@ -2508,6 +2587,15 @@ def run_probes(validator_label: str) -> int:
             for key, expected_value in detail_expectations.items()
             if parsed.get(key) is not expected_value
         }
+        expected_blocker = BLOCKER_EXPECTATIONS.get(name)
+        observed_blockers = parsed.get("blockers", [])
+        if expected_blocker is not None and not any(
+            expected_blocker in str(blocker) for blocker in observed_blockers
+        ):
+            detail_mismatches["blockers"] = {
+                "expected": expected_blocker,
+                "observed": observed_blockers,
+            }
         results.append(
             {
                 "probe": name,
