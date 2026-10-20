@@ -11,7 +11,7 @@ Keep two kinds of output apart. Maintained deliverables, such as the public repo
 
 Treat a mirror as an allowlist: synchronize only mapped root files, byte-for-byte, keep required hidden repository files, and keep launchers separate from game logic. Exclude credentials, private archives, local profiles, caches, editor and vault state, stale archives, and accidental personal paths. Run project QA checks and required change-focused tests before release.
 
-When the user asks for an archive, build it with `scripts/build_repository_zip.py`. It fails closed: risky files are default excludes that only `--include` overrides, git-ignored files and symbolic links are never packaged, and `--git-tracked` or `--allowlist FILE` limits the inventory. Review its packaged and excluded lists. Its `contentDigest` covers names and bytes only; the archive's own SHA-256 is reproducible across Python builds only with `--stored`.
+When the user asks for an archive, build it with `scripts/build_repository_zip.py`. Git-ignored files, symbolic links, and junctions are never packaged, and risky files are default excludes that only `--include` overrides. Those excludes are a denylist of common names, so the default walk and `--git-tracked` package any secret they do not name; `--allowlist FILE` is the only fully fail-closed mode, so use it for a public release. Review the packaged and excluded lists. Its `contentDigest` covers names and bytes only; the archive's own SHA-256 is reproducible across Python builds only with `--stored`.
 
 Before anything is published, check and report:
 

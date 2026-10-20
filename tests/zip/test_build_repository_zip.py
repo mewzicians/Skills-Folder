@@ -64,6 +64,41 @@ RISKY_SHOWN = {
     ".gitignore": "default exclude .git*",
     ".github/": "default exclude .git*",
 }
+# Release signing material and credentials, as {path: (shown path, pattern)}.
+RELEASE_SECRETS = {
+    "android/release.keystore": ("android/release.keystore", "*.keystore"),
+    "android/upload.jks": ("android/upload.jks", "*.jks"),
+    "certs/dist.p12": ("certs/dist.p12", "*.p12"),
+    "certs/dist.pfx": ("certs/dist.pfx", "*.pfx"),
+    "AuthKey_PLACEHOLDER.p8": ("AuthKey_PLACEHOLDER.p8", "*.p8"),
+    "ios/app.mobileprovision": ("ios/app.mobileprovision", "*.mobileprovision"),
+    "putty.ppk": ("putty.ppk", "*.ppk"),
+    "id_dsa": ("id_dsa", "id_dsa*"),
+    "credentials.json": ("credentials.json", "credentials.json"),
+    "config/secrets.yaml": ("config/secrets.yaml", "secrets.*"),
+    "save.bak": ("save.bak", "*.bak"),
+    "notes.txt~": ("notes.txt~", "*~"),
+    "android/app/google-services.json": ("android/app/google-services.json", "google-services.json"),
+    "ios/GoogleService-Info.plist": ("ios/GoogleService-Info.plist", "GoogleService-Info.plist"),
+    "config/prod.env": ("config/prod.env", "*.env"),
+    "web/.htpasswd": ("web/.htpasswd", ".htpasswd"),
+    ".docker/config.json": (".docker/", ".docker/"),
+    "deploy/kube/config": ("deploy/kube/config", "kube/config"),
+    ".kube/config": (".kube/", ".kube/"),
+    ".gnupg/pubring.kbx": (".gnupg/", ".gnupg/"),
+    "secring.gpg": ("secring.gpg", "*.gpg"),
+    "infra/terraform.tfstate": ("infra/terraform.tfstate", "*.tfstate"),
+    "infra/terraform.tfstate.backup": ("infra/terraform.tfstate.backup", "*.tfstate.*"),
+    ".vs/slnx.sqlite": (".vs/", ".vs/"),
+}
+# Ordinary files whose names resemble a release secret.
+LOOKALIKES = {
+    "docs/environment.md": "docs\n",
+    "src/keystore.py": "code\n",
+    "kube/deploy.yaml": "manifest\n",
+    "config/settings.json": "{}\n",
+    "infra/main.tf": "terraform\n",
+}
 GIT = ["git", "-c", "core.autocrlf=false", "-c", "user.name=Probe", "-c", "user.email=probe@example.com"]
 
 
@@ -329,6 +364,31 @@ class DeterminismTest(BuilderTestCase):
             self.assertNotIn(name, payload["packaged"])
             self.assertEqual(self.excluded(payload)[name], "symbolic link or junction, never packaged")
         self.assertNotIn("linked-folder/private.txt", payload["packaged"])
+
+
+class ReleaseSecretTest(BuilderTestCase):
+    """Common signing material and credentials are default excludes."""
+
+    def test_release_secrets_are_excluded_and_lookalikes_are_not(self) -> None:
+        write_files(self.source, {name: "placeholder\n" for name in RELEASE_SECRETS})
+        write_files(self.source, LOOKALIKES)
+        returncode, payload, stderr = self.build()
+        self.assertEqual(returncode, 0, stderr)
+        excluded = self.excluded(payload)
+        for name, (shown, pattern) in RELEASE_SECRETS.items():
+            with self.subTest(name=name):
+                self.assertNotIn(name, payload["packaged"])
+                self.assertEqual(excluded.get(shown), f"default exclude {pattern}; --include overrides it")
+        for name in LOOKALIKES:
+            self.assertIn(name, payload["packaged"])
+        self.assertNotIn(".vs/slnx.sqlite", self.archive_names())
+
+    def test_include_still_overrides_a_secret_pattern(self) -> None:
+        write_files(self.source, {"deploy/kube/config": "placeholder\n", "config/prod.env": "placeholder\n"})
+        returncode, payload, stderr = self.build("--include", "deploy/kube/config", "--include", "*.env")
+        self.assertEqual(returncode, 0, stderr)
+        self.assertIn("deploy/kube/config", payload["packaged"])
+        self.assertIn("config/prod.env", payload["packaged"])
 
 
 def load_builder() -> object:

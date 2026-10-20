@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build an on-demand repository-root ZIP that fails closed, then byte-verify it.
+"""Build an on-demand repository-root ZIP from a vetted inventory, then byte-verify it.
 
     python -B build_repository_zip.py SOURCE OUTPUT.zip [options]
 
@@ -9,12 +9,17 @@ Inventory modes:
   --allowlist F   exactly the paths listed in F, one per line ('#' starts a
                   comment); any other file under SOURCE fails the build
 
-In every mode, files matching a default exclude (secrets, credentials,
-environments, editor and vault state, continuity ledgers, backups, git
-metadata, caches, archives) are left out and listed, unless an --include
-pattern names them. Git-ignored files, symbolic links, and the .git folder
-are never packaged. Windows junctions count as symbolic links and are never
-followed, and a file whose real path leaves SOURCE fails the build.
+In every mode, files matching a default exclude (keys, certificates,
+credentials, environments, editor and vault state, continuity ledgers,
+backups, git metadata, caches, archives) are left out and listed, unless an
+--include pattern names them. The default excludes are a denylist of common
+names: they cannot know every secret a project keeps, so the default walk and
+--git-tracked package any risky file they do not name. --allowlist is the
+only fully fail-closed mode; use it for a public release.
+
+Git-ignored files, symbolic links, and the .git folder are never packaged.
+Windows junctions count as symbolic links and are never followed, and a file
+whose real path leaves SOURCE fails the build.
 
 When a .git folder or file exists at or above SOURCE, the builder needs git
 to answer for it: if git is missing or fails, the build is refused rather
@@ -59,29 +64,60 @@ DEFLATE_LEVEL = 9
 NAME_SURROGATE_TAG = 0x20000000
 
 # (pattern, where it applies): "dir" matches a folder on the path, "file" the
-# final name, "any" either. Matching ignores case. Some names are built from
-# fragments so that this file never spells a private vault folder.
+# final name, "any" either, and "path" the last parts of the path, such as
+# "kube/config". Matching ignores case. Some names are built from fragments
+# so that this file never spells a private vault folder.
+#
+# This is a denylist of common names. It cannot know every secret a project
+# keeps, so only --allowlist is fully fail-closed.
 DEFAULT_EXCLUDES = (
     (".git*", "any"),
     (".env*", "any"),
+    ("*.env", "file"),
+    # Keys, certificates, and signing material.
     ("*.pem", "file"),
     ("*.key", "file"),
+    ("*.p8", "file"),
+    ("*.p12", "file"),
+    ("*.pfx", "file"),
+    ("*.keystore", "file"),
+    ("*.jks", "file"),
+    ("*.mobileprovision", "file"),
+    ("*.ppk", "file"),
+    ("*.gpg", "file"),
     ("id_rsa*", "file"),
+    ("id_dsa*", "file"),
     ("id_ecdsa*", "file"),
     ("id_ed25519*", "file"),
     (".ssh", "dir"),
+    (".gnupg", "dir"),
+    # Credentials and service configuration.
     (".aws", "dir"),
+    (".docker", "dir"),
+    (".kube", "dir"),
+    ("kube/config", "path"),
+    ("credentials.json", "file"),
+    ("secrets.*", "file"),
+    ("google-services.json", "file"),
+    ("GoogleService-Info.plist", "file"),
+    (".htpasswd", "file"),
     (".npmrc", "file"),
     (".pypirc", "file"),
     (".netrc", "file"),
+    ("*.tfstate", "file"),
+    ("*.tfstate.*", "file"),
+    # Environments, editors, vaults, ledgers, caches, and archives.
     (".venv", "dir"),
     ("venv", "dir"),
     ("node_modules", "dir"),
     (".vscode", "dir"),
     (".idea", "dir"),
+    (".vs", "dir"),
     ("." + "obsidian", "dir"),
     ("CONTEXT_CONTINUITY*.md", "file"),
     ("*backup*", "dir"),
+    ("*.bak", "file"),
+    ("*~", "file"),
     ("__pycache__", "dir"),
     (".pytest_cache", "dir"),
     (".mypy_cache", "dir"),
@@ -122,18 +158,33 @@ def parts_of(name: str) -> tuple[str, ...]:
     return PurePosixPath(name).parts
 
 
+def shown_pattern(pattern: str, where: str) -> str:
+    return pattern + ("/" if where == "dir" else "")
+
+
 def default_exclude(name: str) -> tuple[str, str] | None:
-    """The (display path, pattern) of the first default exclude that matches."""
+    """The (display path, pattern) of the first default exclude that matches.
+
+    Folders are checked outermost first, so an excluded folder is reported
+    once rather than file by file.
+    """
     parts = parts_of(name)
-    for index, part in enumerate(parts):
+    folded_parts = [part.casefold() for part in parts]
+    for index, folded in enumerate(folded_parts):
         is_dir = index < len(parts) - 1
-        folded = part.casefold()
         for pattern, where in DEFAULT_EXCLUDES:
+            if where == "path":
+                wanted = pattern.casefold().split("/")
+                if is_dir or len(wanted) > len(parts):
+                    continue
+                if all(map(fnmatch.fnmatchcase, folded_parts[-len(wanted) :], wanted)):
+                    return name, pattern
+                continue
             if where == "dir" and not is_dir or where == "file" and is_dir:
                 continue
             if fnmatch.fnmatchcase(folded, pattern.casefold()):
                 display = "/".join(parts[: index + 1]) + ("/" if is_dir else "")
-                return display, pattern + ("/" if where == "dir" else "")
+                return display, shown_pattern(pattern, where)
     return None
 
 
@@ -467,7 +518,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
         epilog="Default excludes: "
-        + ", ".join(pattern + ("/" if where == "dir" else "") for pattern, where in DEFAULT_EXCLUDES),
+        + ", ".join(shown_pattern(pattern, where) for pattern, where in DEFAULT_EXCLUDES)
+        + ". They are a denylist; only --allowlist is fully fail-closed.",
     )
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
