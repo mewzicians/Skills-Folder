@@ -8,31 +8,9 @@ version.
 
 ## [1.1.0] - 2026-10-20
 
-### Breaking
-
-- Removed `game-skill-creator` and `game-skill-installer`, which were adapted
-  from OpenAI Codex system skills. Use your agent host's own skill-creator;
-  [docs/SPECIALIZE.md](docs/SPECIALIZE.md) explains how to specialize the
-  suite. The `v1.0.0` tag still holds both.
-- Renamed `game-github-package` to `game-release`. Invoke it as
-  `$game-release` in Codex or `/game-release` in Claude Code.
-- Removed `install-skills.ps1`, `verify-package.ps1`, and `MANIFEST.sha256`.
-  `install.py` and `tools/verify_package.py` replace the scripts. The
-  manifest pinned CRLF bytes that failed on LF checkouts and on GitHub's
-  Download ZIP; git's own object hashes now identify the bytes.
-- The installer's default Codex folder is `~/.agents/skills`, where Codex
-  documents personal skills, instead of `$CODEX_HOME/skills`. The old folder
-  is still available as `--target codex-legacy`.
-- Every `SKILL.md` follows a new portable frontmatter schema
-  ([docs/SKILL_SCHEMA.md](docs/SKILL_SCHEMA.md)): only `name`, `description`,
-  `license`, and one-level string `metadata`; UTF-8 with LF and no BOM; no
-  tabs, block scalars, or multi-line values; and descriptions of at most 300
-  characters. Claude Code-only keys, `compatibility`, and `allowed-tools` are
-  rejected.
-- Every script needs Python 3.11 or later.
-- `game-release`, `game-qa-cleanup`, and `game-full-verification` are
-  explicit-only: Codex runs them only when you name them, and their
-  descriptions tell Claude Code to wait for an explicit request.
+Items marked **Breaking** change how you install or invoke the suite. To
+upgrade from 1.0.x, follow the README's
+[Upgrading from 1.0.x](README.md#upgrading-from-10x).
 
 ### Added
 
@@ -41,9 +19,9 @@ version.
   shows a plan and asks first; upgrades older copies and refuses newer,
   unaccounted-for, or duplicate-name copies unless told otherwise; detects
   the three retired 1.0 skills and offers to back them up; stages, swaps,
-  and rolls back changes together; keeps backups and its install record in
-  the user state folder, outside every skills folder; and never uses the
-  network.
+  and rolls back changes together; runs one change at a time under a lock;
+  keeps backups and its install record in the user state folder, outside
+  every skills folder; and never uses the network.
 - One root plugin, `game-dev-skills`, in the `skills-folder` marketplace:
   `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` for
   Claude Code, a portable Agent Plugins 1.0.0 `plugin.json`, and
@@ -52,12 +30,12 @@ version.
   problem in one run: skill structure, portable frontmatter, the text policy,
   private project names, generated debris, dangling symbolic links, generated-copy and
   identical-file drift, the explicit-only policy and wording, the plugin
-  manifests, one version across `VERSION`, both manifests, and the newest
-  changelog entry, relative links and images in the README, changelog, and
-  `docs/` (also `--metadata`), description and body budgets, and a
-  neutrality lint (also `--lint`) for self-granted permissions,
-  author-specific names, personal paths and addresses, private vault names,
-  and committed continuity ledgers.
+  manifests and their documented Codex values, one version across `VERSION`,
+  both manifests, and the newest changelog entry, relative links and images
+  in the README, changelog, and `docs/` (also `--metadata`), description and
+  body budgets, and a neutrality lint (also `--lint`) for self-granted
+  permissions, author-specific names, personal paths and addresses, private
+  vault names, and committed continuity ledgers.
 - `tools/validate_skill.py` and `tools/lib/skill_frontmatter.py`, a
   standard-library frontmatter validator with portable and spec levels and a
   generated test corpus.
@@ -71,6 +49,22 @@ version.
 
 ### Changed
 
+- **Breaking:** Renamed `game-github-package` to `game-release`. Invoke it as
+  `$game-release` in Codex or `/game-release` in Claude Code.
+- **Breaking:** The installer's default Codex folder is `~/.agents/skills`,
+  where Codex documents personal skills, instead of `$CODEX_HOME/skills`.
+  The old folder is still available as `--target codex-legacy`.
+- **Breaking:** Every `SKILL.md` follows a new portable frontmatter schema
+  ([docs/SKILL_SCHEMA.md](docs/SKILL_SCHEMA.md)): only `name`, `description`,
+  `license`, and one-level string `metadata`; UTF-8 with LF and no BOM; no
+  tabs, block scalars, or multi-line values; and descriptions of at most 300
+  characters. Claude Code-only keys, `compatibility`, and `allowed-tools` are
+  rejected.
+- **Breaking:** Every script needs Python 3.11 or later.
+- **Breaking:** `game-release`, `game-qa-cleanup`, and
+  `game-full-verification` are explicit-only: they set Codex's switch for
+  running only when named, and their descriptions tell Claude Code to wait
+  for an explicit request.
 - The README is rewritten for first-time builders, with install steps for
   Claude Code and Codex and a Validation section that lists only what CI
   runs.
@@ -94,11 +88,22 @@ version.
 - `game-balance-lab` shows as "Balance Sim Lab" in Codex.
 - `.gitattributes` pins LF line endings for every text file.
 
+### Removed
+
+- **Breaking:** Removed `game-skill-creator` and `game-skill-installer`,
+  which were adapted from OpenAI Codex system skills. Use your agent host's
+  own skill-creator; [docs/SPECIALIZE.md](docs/SPECIALIZE.md) explains how to
+  specialize the suite. The `v1.0.0` tag still holds both.
+- **Breaking:** Removed `install-skills.ps1`, `verify-package.ps1`, and
+  `MANIFEST.sha256`. `install.py` and `tools/verify_package.py` replace the
+  scripts. The manifest pinned CRLF bytes that failed on LF checkouts and on
+  GitHub's Download ZIP; git's own object hashes now identify the bytes.
+
 ### Fixed
 
 - Scripts name their text encoding, write files atomically, and reconfigure
-  stdout and stderr, so they no longer misread files in a non-UTF-8 locale,
-  truncate `agents/openai.yaml`, or crash on non-ASCII output.
+  stdout and stderr, so they no longer misread files in a non-UTF-8 locale
+  or crash on non-ASCII output.
 - The frontmatter validator expands glob patterns itself, so the same
   command works in PowerShell, cmd, and POSIX shells.
 - Dangling symbolic links are reported as problems instead of crashing the
@@ -120,26 +125,12 @@ version.
 - The archive builder excludes common secrets and signing material by
   default, says plainly that its excludes are a denylist, and offers
   `--allowlist`, its only fully fail-closed mode.
+- The auditor's evidence assessor no longer runs a script that an evidence
+  manifest names before trusting it: it replays only its own pinned bundled
+  validator, Codex's validator under `CODEX_HOME`, or the bundled audit beside
+  it, and replays its own scripts isolated with `-I`.
 - CI pins its actions by commit, reads repository contents only, and
   installs its one test dependency, PyYAML, by hash.
-
-### Upgrade
-
-Version 1.0 installed into `$CODEX_HOME/skills` or `~/.codex/skills` and
-kept no install record, so `install.py` cannot tell those copies from your
-own edits.
-
-1. Run `python install.py status` to see what is installed.
-2. Either upgrade the old folder in place with
-   `python install.py install --target codex-legacy --replace-modified`, or
-   move the old copies to backups with
-   `python install.py uninstall --target codex-legacy --include-modified`
-   and then run `python install.py install`.
-3. Accept the offer to move `game-github-package`, `game-skill-creator`, and
-   `game-skill-installer` to backups.
-
-The README's [Upgrading from 1.0.x](README.md#upgrading-from-10x) section
-explains each step.
 
 ## [1.0.0] - 2026-08-18
 
@@ -156,10 +147,8 @@ explains each step.
   Windows.
 - `templates/GAME_PROJECT_PROFILE.template.md`.
 
-### Release-time checks
-
-Recorded as history from the 1.0.0 README, which said the release package
-was checked for:
+Recorded as history: the 1.0.0 README said the release package was checked
+for:
 
 - valid skill structure and matching metadata;
 - project-neutral language and portable paths;
@@ -175,6 +164,9 @@ skill validator, the strict auditor, and both bundled self-test suites on
 Windows. These describe that release and were not re-run for this record.
 Version 1.1 found no committed test for the installation or archive checks,
 and found that the manifest failed on LF checkouts.
+
+The version links below resolve once the `v1.0.0` and `v1.1.0` tags are
+pushed to GitHub.
 
 [1.1.0]: https://github.com/mewzicians/Skills-Folder/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/mewzicians/Skills-Folder/releases/tag/v1.0.0
