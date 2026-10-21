@@ -661,6 +661,22 @@ class UninstallTest(HomesTestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(sorted(path.name for path in self.homes.codex.iterdir()), [])
 
+    def test_a_recorded_retired_skill_is_moved_once(self) -> None:
+        plant_retired(self.homes.codex)
+        ledger = json.loads(self.homes.ledger.read_text(encoding="utf-8"))
+        digest = INSTALL.tree_digest(self.homes.codex / "game-skill-creator")
+        ledger["roots"][INSTALL.root_key(self.homes.codex)]["skills"]["game-skill-creator"] = {
+            "version": VERSION, "digest": digest
+        }
+        self.homes.ledger.write_text(json.dumps(ledger), encoding="utf-8", newline="\n")
+        code, payload, err = run_cli(self.homes, "uninstall", "--yes")
+        self.assertEqual((code, payload["result"]), (0, "done"), err)
+        self.assertNotIn("game-skill-creator", [item["skill"] for item in payload["plan"]])
+        self.assertEqual(actions(payload)["game-skill-creator"], "retire")
+        [backup] = self.homes.backups()
+        self.assertEqual(INSTALL.tree_digest(backup / "game-skill-creator"), digest)
+        self.assertEqual(sorted(path.name for path in self.homes.codex.iterdir()), [])
+
 
 def failing_rename(after: int, error: BaseException):
     """os.rename that raises once, on call number after + 1, and otherwise renames."""
@@ -1021,6 +1037,34 @@ class LedgerAndJournalSafetyTest(HomesTestCase):
         self.assertEqual([path.name for path in self.homes.codex.parent.iterdir()], ["skills"])
         expected = {"backups", "install-ledger.json", "install.lock", "victim"}
         self.assertLessEqual({path.name for path in self.homes.state.iterdir()}, expected)
+
+    def test_a_ledger_or_journal_of_the_wrong_shape_is_named_not_a_traceback(self) -> None:
+        good = self.homes.ledger.read_text(encoding="utf-8")
+        key = INSTALL.root_key(self.homes.codex)
+        shapes = {
+            "a root entry that is a list": {"roots": {key: []}},
+            "skills that are a list": {"roots": {key: {"skills": []}}},
+            "skills that are text": {"roots": {key: {"skills": "game-plan"}}},
+            "a record that is text": {"roots": {key: {"skills": {"game-plan": "1.1.0"}}}},
+        }
+        for label, ledger in shapes.items():
+            self.homes.ledger.write_text(json.dumps(ledger), encoding="utf-8", newline="\n")
+            for args in (("install", "--yes"), ("uninstall", "--yes"), ("status",)):
+                with self.subTest(ledger=label, command=args[0]):
+                    code, payload, err = run_here(self.homes, *args)
+                    self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
+                    self.assertIn("has an unknown shape. Move it aside", payload["error"])
+        deep = "[" * 100_000 + "]" * 100_000
+        self.homes.ledger.write_text(deep, encoding="utf-8", newline="\n")
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
+        self.assertIn("cannot read the install ledger", payload["error"])
+        self.homes.ledger.write_text(good, encoding="utf-8", newline="\n")
+        (self.homes.state / "journal.json").write_text(deep, encoding="utf-8", newline="\n")
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
+        self.assertIn("cannot be read", payload["error"])
+        self.assertInstalled(self.homes.codex)
 
     def test_a_journal_naming_paths_outside_its_run_is_refused(self) -> None:
         root, victim = self.homes.codex, self.victims[0]

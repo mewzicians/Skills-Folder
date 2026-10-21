@@ -662,31 +662,38 @@ def root_key(root: Path) -> str:
     return os.path.normcase(str(real(root)))
 
 
+LEDGER_ASIDE = (
+    "Move it aside to continue; the installed skills then count as unrecorded, so replacing them needs "
+    "--replace-modified."
+)
+
+
 def read_ledger(path: Path) -> dict:
+    """The install ledger, or an empty one when there is none. Any other shape is an error that names the file."""
     if not path.exists():
         return {"schema": LEDGER_SCHEMA, "roots": {}}
     try:
         ledger = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError) as error:
-        raise UsageError(f"cannot read the install ledger {path}: {error}. Move it aside to continue.") from error
-    if not isinstance(ledger, dict) or not isinstance(ledger.get("roots"), dict):
-        raise UsageError(f"the install ledger {path} has an unknown shape. Move it aside to continue.")
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as error:
+        raise UsageError(f"cannot read the install ledger {path}: {error}. {LEDGER_ASIDE}") from error
+    roots = ledger.get("roots") if isinstance(ledger, dict) else None
+    if not isinstance(roots, dict) or not all(
+        isinstance(entry, dict)
+        and isinstance(entry.get("skills", {}), dict)
+        and all(isinstance(record, dict) for record in entry.get("skills", {}).values())
+        for entry in roots.values()
+    ):
+        raise UsageError(f"the install ledger {path} has an unknown shape. {LEDGER_ASIDE}")
     return ledger
 
 
 def ledger_skills(ledger: dict, root: Path) -> dict:
-    entry = ledger["roots"].get(root_key(root), {})
-    skills = entry.get("skills", {}) if isinstance(entry, dict) else {}
-    return skills if isinstance(skills, dict) else {}
+    return ledger["roots"].get(root_key(root), {}).get("skills", {})
 
 
 def recorded(ledger: dict, root: Path) -> dict[str, dict]:
     """The ledger's records for root whose names are skill names; nothing else becomes a path."""
-    return {
-        name: value
-        for name, value in ledger_skills(ledger, root).items()
-        if isinstance(value, dict) and child(root, name) is not None
-    }
+    return {name: value for name, value in ledger_skills(ledger, root).items() if child(root, name) is not None}
 
 
 def ignored_records(ledger: dict, root: Path) -> list[str]:
@@ -850,7 +857,8 @@ def plan_uninstall(target: Target, state: Path, source: Source, ledger: dict, ar
     records = recorded(ledger, target.root)
     plan.warnings.extend(ignored_records(ledger, target.root))
     digests = {skill.name: skill.digest for skill in source.skills}
-    for name in sorted(set(digests) | set(records)):
+    # A retired skill is planned only once, as a retired skill, even if the ledger records it.
+    for name in sorted((set(digests) | set(records)) - set(RETIRED)):
         item = inspect_copy(name, target.root / name, records.get(name), digests.get(name), source.version)
         if item.state == "absent":
             continue
@@ -1299,7 +1307,7 @@ def recover(state: Path, args, out: Reporter) -> tuple[int, dict]:
         journal = json.loads(journal_path.read_text(encoding="utf-8"))
         if not isinstance(journal, dict) or not isinstance(journal.get("renames"), list) or "ledger" not in journal:
             raise ValueError("unknown shape")
-    except (OSError, UnicodeDecodeError, ValueError) as error:
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as error:
         raise UsageError(
             f"{journal_path} records an interrupted run but cannot be read ({error}). Check the skills folder "
             "and the backups by hand, then move the journal aside."
@@ -1454,20 +1462,13 @@ def record_skips(plan: Plan) -> None:
     """Record identical copies in the ledger, so later upgrades can recognize them."""
     path = plan.state / LEDGER_NAME
     ledger = read_ledger(path)
-    entry = ledger["roots"].get(root_key(plan.target.root), {})
-    known = entry.get("skills", {}) if isinstance(entry, dict) else {}
-    digests = {skill.name: skill.digest for skill in plan.source.skills}
-    if all(
-        isinstance(known.get(item.skill), dict)
-        and known[item.skill].get("digest") == digests[item.skill]
-        and known[item.skill].get("version") == plan.source.version
-        for item in plan.items
-        if item.action == "skip"
-    ):
-        return
     entry = ledger["roots"].setdefault(root_key(plan.target.root), {})
+    skills = entry.setdefault("skills", {})
+    before = json.dumps(skills, sort_keys=True)
+    apply_records(skills, plan)
+    if json.dumps(skills, sort_keys=True) == before:
+        return
     entry.update(path=str(plan.target.root), target=plan.target.name)
-    apply_records(entry.setdefault("skills", {}), plan)
     plan.state.mkdir(parents=True, exist_ok=True)
     write_atomic(path, json.dumps(ledger, indent=2, sort_keys=True) + "\n")
 
