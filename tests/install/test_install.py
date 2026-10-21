@@ -818,6 +818,18 @@ class AtomicityTest(HomesTestCase):
                 self.assertIn("Cancelled. Nothing was changed.", err)
                 self.assertUnchanged()
 
+    def test_a_crash_right_after_the_journal_is_created_changed_nothing(self) -> None:
+        # begin() creates the journal empty, then saves it; a crash between the
+        # two leaves an empty journal, which records nothing to undo.
+        (self.homes.state / "journal.json").write_bytes(b"")
+        code, payload, err = run_cli(self.homes, "status", "--target", "codex")
+        self.assertEqual(code, 0, err)
+        code, payload, err = run_cli(self.homes, "install", "--yes", "--keep-retired")
+        self.assertEqual((code, payload["result"]), (0, "done"), err)
+        self.assertIn("removed the empty", err)
+        self.assertFalse((self.homes.state / "journal.json").exists())
+        self.assertInstalled(self.homes.codex)
+
     def test_a_failed_ledger_write_rolls_the_swap_back(self) -> None:
         real_write = INSTALL.write_atomic
 

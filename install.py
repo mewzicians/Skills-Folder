@@ -1400,7 +1400,11 @@ def run_change(command: str, args, out: Reporter) -> tuple[int, dict]:
 
 def change_locked(command: str, args, out: Reporter, source: Source, target: Target, state: Path) -> tuple[int, dict]:
     """Plan and apply one change while this process holds the state lock."""
-    if (state / JOURNAL_NAME).exists():
+    journal = state / JOURNAL_NAME
+    if journal.exists() and journal.stat().st_size == 0:
+        journal.unlink()  # begin() creates it empty: its run stopped before recording or changing anything
+        out.say(f"Note: removed the empty {journal}, which a run left when it stopped before changing anything.")
+    if journal.exists():
         code, extra = recover(state, args, out)
         return code, result_payload(None, target, state, **extra)
     ledger = read_ledger(state / LEDGER_NAME)
