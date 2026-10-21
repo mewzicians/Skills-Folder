@@ -1085,7 +1085,11 @@ class LedgerAndJournalSafetyTest(HomesTestCase):
         self.homes.ledger.write_text(deep, encoding="utf-8", newline="\n")
         code, payload, err = run_here(self.homes, "install", "--yes")
         self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
-        self.assertIn("cannot read the install ledger", payload["error"])
+        # Whether the JSON parser gives up on this depth depends on the interpreter: some raise
+        # RecursionError ("cannot read"), while Python 3.14+ on POSIX parses it and the shape check
+        # rejects the nested list ("unknown shape"). Either way the user gets the same advice.
+        self.assertRegex(payload["error"], r"cannot read the install ledger|has an unknown shape")
+        self.assertIn("Move it aside", payload["error"])
         self.homes.ledger.write_text(good, encoding="utf-8", newline="\n")
         (self.homes.state / "journal.json").write_text(deep, encoding="utf-8", newline="\n")
         code, payload, err = run_here(self.homes, "install", "--yes")
