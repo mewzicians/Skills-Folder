@@ -403,7 +403,7 @@ class StateLock:
             variable = "LOCALAPPDATA" if os.name == "nt" else None if sys.platform == "darwin" else "XDG_STATE_HOME"
             raise UsageError(
                 f"cannot open the lock file {self.path} ({error}), so nothing was changed. Make "
-                f"{self.path.parent} a folder you can write to"
+                f"{self.path.parent} a folder you can write to, and {LOCK_NAME} in it a file you can write to"
                 + (f", or set {variable} to another absolute path" if variable else "")
                 + ", then run this command again."
             ) from error

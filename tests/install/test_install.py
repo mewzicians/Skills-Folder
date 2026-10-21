@@ -1440,6 +1440,17 @@ class ErrorMessageTest(HomesTestCase):
                 self.assertIn("install.py: cannot open the lock file", completed.stdout)
                 self.assertIn(f"Make {self.homes.state} a folder you can write to", completed.stdout)
         self.assertFalse(self.homes.codex.exists())
+        if os.name == "nt" or POSIX_PERMISSIONS:
+            self.homes.state.unlink()
+            self.homes.state.mkdir()
+            lock = self.homes.state / "install.lock"
+            lock.write_bytes(b"")
+            os.chmod(lock, stat.S_IREAD)
+            self.addCleanup(lambda: lock.exists() and os.chmod(lock, stat.S_IREAD | stat.S_IWRITE))
+            completed = run_text(self.homes, "install", "--yes")
+            self.assertEqual(completed.returncode, 2, completed.stderr)
+            self.assertIn("and install.lock in it a file you can write to", completed.stdout)
+            self.assertFalse(self.homes.codex.exists())
 
     def test_access_denied_suggests_closing_a_host_or_editor(self) -> None:
         code, payload, err = run_here(self.homes, "install", "--yes")
