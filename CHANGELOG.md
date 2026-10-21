@@ -19,7 +19,9 @@ upgrade from 1.0.x, follow the README's
   shows a plan and asks first; upgrades older copies and refuses newer,
   unaccounted-for, or duplicate-name copies unless told otherwise; detects
   the three retired 1.0 skills and offers to back them up; stages, swaps,
-  and rolls back changes together; runs one change at a time under a lock;
+  and rolls back changes together; finishes or rolls back an interrupted
+  run on the next run without deleting any backup; runs one change at a
+  time under a lock;
   keeps backups and its install record in the user state folder, outside
   every skills folder; and never uses the network.
 - One root plugin, `game-dev-skills`, in the `skills-folder` marketplace:
@@ -38,9 +40,11 @@ upgrade from 1.0.x, follow the README's
   vault names, and committed continuity ledgers.
 - `tools/validate_skill.py` and `tools/lib/skill_frontmatter.py`, a
   standard-library frontmatter validator with portable and spec levels and a
-  generated test corpus.
+  generated test corpus. It expands glob patterns itself, so the same
+  command works in PowerShell, cmd, and POSIX shells.
 - A bundled structural validator inside `game-skill-auditor`, so the auditor
-  needs neither PyYAML nor Codex.
+  needs neither PyYAML nor Codex. It fails on everything Codex's validator
+  rejects.
 - `docs/SKILL_SCHEMA.md`, `docs/SPECIALIZE.md`, `docs/COMPATIBILITY.md`, a
   root `VERSION` file, and this changelog.
 - Tests for the frontmatter schema, the package verifier, the skill scripts,
@@ -104,15 +108,9 @@ upgrade from 1.0.x, follow the README's
 - Scripts name their text encoding, write files atomically, and reconfigure
   stdout and stderr, so they no longer misread files in a non-UTF-8 locale
   or crash on non-ASCII output.
-- The frontmatter validator expands glob patterns itself, so the same
-  command works in PowerShell, cmd, and POSIX shells.
-- Dangling symbolic links are reported as problems instead of crashing the
-  verifier.
 - The archive builder refuses to build when git cannot answer for a git work
   tree, treats Windows junctions as links, and refuses files that resolve
   outside the source.
-- The auditor's structural gate fails on everything Codex's validator
-  rejects.
 - The 1.0.0 README's list of release checks included checks that no
   committed file performed; it is kept below as history.
 
@@ -130,7 +128,9 @@ upgrade from 1.0.x, follow the README's
   validator, Codex's validator under `CODEX_HOME`, or the bundled audit beside
   it, and replays its own scripts isolated with `-I`.
 - CI pins its actions by commit, reads repository contents only, and
-  installs its one test dependency, PyYAML, by hash.
+  installs its one test dependency, PyYAML, by hash. Dependabot
+  (`.github/dependabot.yml`) proposes weekly updates to the pinned actions
+  and to that requirement.
 
 ## [1.0.0] - 2026-08-18
 

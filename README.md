@@ -64,6 +64,7 @@ themselves stay generic.
 | See what changed in each version | [CHANGELOG.md](CHANGELOG.md) |
 | Point the skills at your own game | [Fit it to your game](#fit-it-to-your-game) |
 | Update, uninstall, or find a backup | [Update, uninstall, and backups](#update-uninstall-and-backups) |
+| Finish a run that says "Recovery is incomplete" | [If a run says "Recovery is incomplete"](#if-a-run-says-recovery-is-incomplete) |
 | See what the automated checks cover | [Validation](#validation) |
 
 ## The 12 skills
@@ -112,8 +113,8 @@ real machine and what is only documented.
 
 | Route | You need |
 | --- | --- |
-| Claude Code plugin | Claude Code. No Python. |
-| Codex plugin | Codex CLI. No Python. |
+| Claude Code plugin (documented, not verified) | Claude Code. No Python. |
+| Codex plugin (documented, not verified) | Codex CLI. No Python. |
 | `install.py` (Codex or Claude Code) | Python 3.11 or later, and the files from [Get the files](#get-the-files). |
 | Copy by hand | Nothing extra: copy each folder in `skills/` into your host's skills folder. You lose the upgrade checks and backups. |
 
@@ -209,9 +210,11 @@ retired (`game-github-package`, `game-skill-creator`, and
 Changes are staged next to the skills folder and swapped in together; if
 anything fails, or you press Ctrl+C, every change is rolled back. If it is
 interrupted again during that rollback, or after every change is already
-made, it says so, and the next run finishes the job. Only one install or
-uninstall runs at a time: a second one refuses until the first finishes. It
-never uses the network.
+made, it says so, and the next run finishes the job without deleting any
+backup; see
+[If a run says "Recovery is incomplete"](#if-a-run-says-recovery-is-incomplete).
+Only one install or uninstall runs at a time: a second one refuses until the
+first finishes. It never uses the network.
 
 Other places to install:
 
@@ -219,7 +222,7 @@ Other places to install:
 | --- | --- | --- |
 | `--target codex` (the default) | `~/.agents/skills` | Codex, in every project |
 | `--target codex-legacy` | `$CODEX_HOME/skills`, or `~/.codex/skills` when `CODEX_HOME` is unset | Codex, from a personal folder that its source marks deprecated and still reads for backward compatibility. Version 1.0 installed here; prefer `--target codex`. |
-| `--target codex-project --project DIR` | `DIR/.agents/skills` | Codex, in that project; also Codex in the ChatGPT desktop app when `DIR` is the project's primary folder |
+| `--target codex-project --project DIR` | `DIR/.agents/skills` | Codex, in that project; also Codex in the ChatGPT desktop app when `DIR` is the project's primary folder (documented, not verified) |
 | `--target claude` | `~/.claude/skills`, or `$CLAUDE_CONFIG_DIR/skills` | Claude Code, in every project |
 | `--target claude-project --project DIR` | `DIR/.claude/skills` | Claude Code, in that project |
 | `--dest DIR` | `DIR` | Any other tool that reads `SKILL.md` folders |
@@ -258,6 +261,30 @@ installed in each folder, which copies are current, and any duplicates.
   To restore a skill, copy its folder from the backup into your skills
   folder. The install record, `install-ledger.json`, sits beside the
   `backups` folder.
+
+### If a run says "Recovery is incomplete"
+
+A run that is interrupted, by a crash, a closed terminal, or a second
+Ctrl+C, leaves `journal.json` beside `install-ledger.json`. The next install
+or uninstall offers to finish that run or roll it back. A rollback first
+moves every skill back, then restores the install record, then cleans up,
+so running the command again never repeats a step that already worked. A
+recovery never deletes a backup; when it rolls a run back, it prints
+`kept the backup` and the folder's path.
+
+If a run prints `Recovery is incomplete` or `The rollback is incomplete`:
+
+1. Read each `PROBLEM` line. Most often a program holds a file open, or a
+   skill was edited after the interrupted run put it there, which the
+   installer never overwrites.
+2. Close the agent host or editor, or move the edited copy out of the
+   skills folder, then run the same command again. Each run retries only
+   what is left.
+3. If the same problem stays, the journal no longer matches the folders,
+   for example after it was restored from file history. Compare the skills
+   folder with the backup named in the output, copy back what you need, then
+   move `journal.json` away from `install-ledger.json` and run the command
+   again.
 
 ## Upgrading from 1.0.x
 
