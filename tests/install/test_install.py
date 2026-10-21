@@ -1530,6 +1530,57 @@ class UnreadableTest(HomesTestCase):
         self.assertEqual((code, payload["result"]), (1, "recovered"), err)
 
 
+class RemoveTreeTest(HomesTestCase):
+    """remove_tree() changes nothing outside the tree it removes and retries only unlink and rmdir."""
+
+    def test_a_retry_changes_permissions_only_inside_the_tree(self) -> None:
+        stage = self.homes.root / "parent" / "stage"
+        (stage / "inner").mkdir(parents=True)
+        (stage / "inner" / "file.txt").write_text("x\n", encoding="utf-8", newline="\n")
+        changed, failed = [], []
+        real_chmod, real_rmdir = os.chmod, os.rmdir
+
+        def chmod(target, mode, *args, **kwargs):
+            changed.append(Path(os.path.abspath(target)))
+            return real_chmod(target, mode, *args, **kwargs)
+
+        def rmdir(target, *args, **kwargs):
+            if Path(os.path.abspath(target)) == stage and not failed:
+                failed.append(target)
+                raise PermissionError(13, "Permission denied", str(target))
+            return real_rmdir(target, *args, **kwargs)
+
+        with mock.patch.object(os, "chmod", chmod), mock.patch.object(os, "rmdir", rmdir):
+            INSTALL.remove_tree(stage)
+        self.assertFalse(stage.exists())
+        self.assertTrue(failed)
+        self.assertTrue(changed)
+        self.assertTrue(all(INSTALL.is_within(path, stage) for path in changed), changed)
+
+    def test_a_link_is_refused_and_its_target_left_alone(self) -> None:
+        outside = self.homes.root / "outside"
+        outside.mkdir()
+        keep = outside / "keep.txt"
+        keep.write_text("Keep me.\n", encoding="utf-8", newline="\n")
+        os.chmod(keep, stat.S_IREAD)
+        self.addCleanup(lambda: keep.exists() and os.chmod(keep, stat.S_IREAD | stat.S_IWRITE))
+        link = self.homes.root / "link"
+        try:
+            if os.name == "nt":
+                import _winapi
+
+                _winapi.CreateJunction(str(outside), str(link))
+            else:
+                os.symlink(outside, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("cannot create a link here")
+        modes = (os.stat(self.homes.root).st_mode, os.stat(outside).st_mode, os.stat(keep).st_mode)
+        with self.assertRaises(OSError):
+            INSTALL.remove_tree(link)
+        self.assertEqual((os.stat(self.homes.root).st_mode, os.stat(outside).st_mode, os.stat(keep).st_mode), modes)
+        self.assertEqual(keep.read_text(encoding="utf-8"), "Keep me.\n")
+
+
 POSIX_PERMISSIONS = os.name == "posix" and hasattr(os, "geteuid") and os.geteuid() != 0
 
 

@@ -288,15 +288,24 @@ def remove_tree(path: Path) -> None:
 
     On POSIX every folder first gets owner read, write, and search
     permission, so a copy holding an unreadable or read-only folder is
-    removed too; a folder never loses its search (execute) bit. Read-only
-    files become writable. Links are removed, never followed.
+    removed too; a folder never loses its search (execute) bit. When an
+    unlink or rmdir still fails, the entry and, inside the tree, its folder
+    become writable and the call runs once more; any other failure is
+    raised. Nothing outside the tree changes, and links are removed, never
+    followed.
     """
+    base = os.path.normcase(os.path.abspath(path))
 
-    def make_writable(function, name, *_):
-        parent = os.path.dirname(name)
-        if os.name != "nt" and parent and is_folder(parent):
-            os.chmod(parent, stat.S_IRWXU)
-        if not os.path.islink(name):
+    def inside(name: str) -> bool:
+        name = os.path.normcase(os.path.abspath(name))
+        return name == base or name.startswith(os.path.join(base, ""))
+
+    def make_writable(function, name, error):
+        if function not in (os.rmdir, os.unlink) or not inside(name):
+            raise error if isinstance(error, BaseException) else error[1]  # onexc passes it, onerror its exc_info
+        if os.name != "nt" and inside(os.path.dirname(name)):
+            os.chmod(os.path.dirname(name), stat.S_IRWXU)
+        if not is_link(name):
             os.chmod(name, stat.S_IRWXU if is_folder(name) else stat.S_IREAD | stat.S_IWRITE)
         function(name)
 
