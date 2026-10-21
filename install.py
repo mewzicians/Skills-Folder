@@ -78,6 +78,10 @@ VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 # Ledger and journal data become paths only through child(), which applies it.
 SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 MAX_SKILL_NAME = 64
+# Device names Windows reserves in every folder, with or without an extension.
+WINDOWS_DEVICES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"] + [f"{port}{number}" for port in ("COM", "LPT") for number in range(1, 10)]
+)
 RUN_ID = re.compile(r"[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 # How Codex finds skills in a folder (codex-rs/ext/skills/src/loader): every
@@ -168,9 +172,16 @@ def is_within(path: Path, parent: Path) -> bool:
         return False
 
 
+def windows_renames(part: str) -> bool:
+    """Whether Windows would not keep a path part as written: a device name, or a trailing dot or space."""
+    return part.rstrip(". ") != part or part.split(".")[0].rstrip(" ").upper() in WINDOWS_DEVICES
+
+
 def child(root: Path, name: object) -> Path | None:
-    """root/name when name is a skill name that stays directly inside root; otherwise None."""
+    """root/name when name is a skill name that stays directly inside root on every system; otherwise None."""
     if not isinstance(name, str) or len(name) > MAX_SKILL_NAME or not SKILL_NAME.fullmatch(name):
+        return None
+    if windows_renames(name):
         return None
     path = root / name
     return path if path.parent == root else None
@@ -541,7 +552,15 @@ def resolve_target(name: str | None, project: str | None, dest: str | None) -> T
     if dest is not None:
         if name is not None or project is not None:
             raise UsageError("use --dest on its own, without --target or --project.")
-        return Target("dest", None, user_path(dest))
+        path = user_path(dest)
+        for part in path.parts[1:] if os.name == "nt" else ():
+            if part != ".." and (":" in part or windows_renames(part)):
+                raise UsageError(
+                    f"--dest {dest!r} has the part {part!r}, which Windows would not keep as written: it drops a "
+                    "trailing dot or space, reads a colon as the start of a data stream, and reserves device names "
+                    "such as CON and NUL. Choose another folder name; nothing was changed."
+                )
+        return Target("dest", None, path)
     name = name or "codex"
     if name in PROJECT_TARGETS:
         if project is None:

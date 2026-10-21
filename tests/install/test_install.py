@@ -377,6 +377,21 @@ class TargetTest(HomesTestCase):
                 self.assertEqual(payload["result"], "usage-error")
         self.assertEqual(tree(self.homes.home), {})
 
+    @unittest.skipUnless(os.name == "nt", "Windows path rules")
+    def test_a_dest_that_windows_would_rename_is_refused(self) -> None:
+        base = self.homes.root / "dests"
+        cases = [
+            str(base / "dot."), str(base / "space "), str(base / "ads") + ":stream", "NUL", str(base / "con"),
+            str(base / "lpt1.txt" / "skills"),
+        ]
+        for dest in cases:
+            with self.subTest(dest=dest):
+                code, payload, err = run_cli(self.homes, "install", "--dest", dest, "--yes")
+                self.assertEqual((code, payload["result"]), (2, "usage-error"), err)
+                self.assertIn("which Windows would not keep as written", payload["error"])
+        self.assertFalse(base.exists())
+        self.assertFalse(self.homes.state.exists())
+
     def test_version_flag(self) -> None:
         completed = run_text(self.homes, "--version")
         self.assertEqual((completed.returncode, completed.stdout.strip()), (0, VERSION))
@@ -1016,7 +1031,7 @@ class LedgerAndJournalSafetyTest(HomesTestCase):
         digest = INSTALL.tree_digest(self.victims[0])
         names = [
             "../../victim", "..\\..\\victim", "game-plan/../../../victim", str(self.victims[2]), "/abs-victim",
-            ".", "..", "Game-Plan", "game-plan\n", "game--plan", "a" * 65,
+            ".", "..", "Game-Plan", "game-plan\n", "game--plan", "a" * 65, "nul", "con", "aux", "com1", "lpt9",
         ]
         for name in names:
             skills[name] = {"version": VERSION, "digest": digest}
@@ -1086,7 +1101,9 @@ class LedgerAndJournalSafetyTest(HomesTestCase):
                 ]
             },
             "absolute name": {"renames": [{"from": str(self.victims[2]), "to": str(stage / "old" / "abs-victim")}]},
-            "move in with no digest": {"renames": [{"from": str(stage / "new" / "game-plan"), "to": str(root / "game-plan")}]},
+            "move in with no digest": {
+                "renames": [{"from": str(stage / "new" / "game-plan"), "to": str(root / "game-plan")}]
+            },
             "move in with a malformed digest": {
                 "renames": [{"from": str(stage / "new" / "game-plan"), "to": str(root / "game-plan"), "digest": "x"}]
             },
