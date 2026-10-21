@@ -78,7 +78,8 @@ VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 # Ledger and journal data become paths only through child(), which applies it.
 SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 MAX_SKILL_NAME = 64
-RUN_ID = re.compile(r"\d{8}T\d{6}Z-[0-9a-f]{6}")
+RUN_ID = re.compile(r"[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}")
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 # How Codex finds skills in a folder (codex-rs/ext/skills/src/loader): every
 # SKILL.md at most six levels below it (a skill folder at most five), outside
 # hidden folders, in at most 2,000 folders, named by its frontmatter name or
@@ -1037,9 +1038,9 @@ class Transaction:
         backup = None
         if replaced:
             backup = plan.state / "backups" / f"{self.id}-{plan.command}-{plan.target.name}"
+            backup.mkdir(parents=True)  # recorded only once this run has made it, so a rollback removes only its own
             self.journal["backup"] = str(backup)
             self.save()
-            backup.mkdir(parents=True)
             manifest = []
             for item in replaced:
                 expected = tree_digest(item.path, include_debris=True)
@@ -1086,22 +1087,26 @@ class Transaction:
         write_atomic(self.ledger_path, json.dumps(ledger, indent=2, sort_keys=True) + "\n")
 
     def finish(self) -> str | None:
-        """After the commit: drop the stage, whose old copies the backup holds. Never rolls back."""
-        try:
-            stage = self.journal.get("stage")
-            if stage and Path(stage).exists():
-                remove_tree(Path(stage))
-            self.journal_path.unlink()
-        except OSError as error:
-            hint = access_hint(error)
-            return f"the change is complete, but cleanup stopped ({error}); the next run finishes it." + (
-                f" {hint}" if hint else ""
-            )
-        return None
+        return finish_committed(self.journal, self.journal_path)
 
     def rollback(self) -> list[str]:
-        """Undo every recorded step; return the problems that kept it from finishing."""
-        return undo(self.journal, self.journal_path, self.rolled_back)
+        """Undo every recorded step, this run's backup included; return the problems that kept it from finishing."""
+        return undo(self.journal, self.journal_path, self.rolled_back, own_backup=True)
+
+
+def finish_committed(journal: dict, journal_path: Path) -> str | None:
+    """After a commit: drop the stage, whose old copies the backup holds, then the journal. Never rolls back."""
+    stage = journal.get("stage")
+    try:
+        if stage and os.path.lexists(stage):
+            remove_tree(Path(stage))
+        journal_path.unlink()
+    except OSError as error:
+        hint = access_hint(error)
+        return f"the change is complete, but the cleanup stopped ({error}); the next run finishes it." + (
+            f" {hint}" if hint else ""
+        )
+    return None
 
 
 def apply_records(skills: dict, plan: Plan) -> None:
@@ -1156,6 +1161,9 @@ def journal_problems(journal: dict, state: Path) -> list[str]:
         problems.append(f"its ledger {journal.get('ledger')!r} is not {state / LEDGER_NAME}")
     if not isinstance(journal.get("ledger_before"), (str, type(None))):
         problems.append("its copy of the earlier ledger is not text")
+    for flag in ("ledger_written", "committed"):
+        if not isinstance(journal.get(flag), bool):
+            problems.append(f"its {flag} flag is {journal.get(flag)!r}, not true or false")
     created, renames = journal.get("created", []), journal.get("renames")
     if not isinstance(created, list) or not isinstance(renames, list):
         problems.append("its lists of created folders and moves are not lists")
@@ -1168,76 +1176,98 @@ def journal_problems(journal: dict, state: Path) -> list[str]:
         destination = step.get("to") if isinstance(step, dict) else None
         name = Path(destination).name if isinstance(destination, str) else None
         inside = child(root, name)
+        digest = step.get("digest") if isinstance(step, dict) else None
         outward = inside is not None and same_text(source, inside) and same_text(destination, stage / "old" / name)
         inward = inside is not None and same_text(source, stage / "new" / name) and same_text(destination, inside)
         if not (outward or inward):
             problems.append(f"it records a move from {source!r} to {destination!r}, outside {root} and its stage")
+        elif inward and not (isinstance(digest, str) and DIGEST.fullmatch(digest)):
+            problems.append(f"its move of a new copy into {destination!r} records no digest to check it by")
     return problems
 
 
-def undo(journal: dict, journal_path: Path, log: list[str]) -> list[str]:
-    """Reverse a run's recorded steps after checking that every one stays inside that run's folders."""
+def undo(journal: dict, journal_path: Path, log: list[str], own_backup: bool = False) -> list[str]:
+    """Reverse a run's recorded steps; return the problems that kept it from finishing.
+
+    Every skill moves back first. Only when all of them have does the ledger
+    get its earlier text back and the journal get saved with nothing left to
+    undo, before any cleanup, so a later run never undoes a move twice; it
+    only finishes the cleanup. A backup is removed only with own_backup, by
+    the run that just wrote it. A recovery keeps it and says where it is,
+    since a journal found on disk may be stale.
+    """
     problems = journal_problems(journal, journal_path.parent)
     if problems:
         return [f"nothing was rolled back, because {problem}" for problem in problems]
-    for step in reversed(journal.get("renames", [])):
-        source, destination = Path(step["from"]), Path(step["to"])
-        if os.path.lexists(destination) and not os.path.lexists(source):
-            if step.get("digest") is not None:
-                try:
-                    current = tree_digest(destination)
-                except OSError as error:
-                    current = f"unreadable: {error}"
-                if current != step["digest"]:
-                    problems.append(f"left {destination} in place, because it changed after this run put it there")
-                    continue
+    for step in reversed(journal["renames"]):
+        source, destination, digest = Path(step["from"]), Path(step["to"]), step.get("digest")
+        if not os.path.lexists(destination):
+            if digest is None and not os.path.lexists(source):
+                problems.append(f"{source} is missing, and so is {destination}, where this run moved it")
+            continue  # the move never happened or is already undone, or the new copy is gone
+        if os.path.lexists(source):
+            if digest is None:
+                problems.append(f"kept {destination}, because {source} is in its way")
+            continue
+        if digest is not None:
             try:
-                os.rename(destination, source)
-                log.append(f"restored {source}")
-            except OSError as error:
-                problems.append(f"could not move {destination} back to {source}: {error}")
-        elif not os.path.lexists(source):
-            problems.append(f"{source} and {destination} are both missing")
-    ledger = Path(journal["ledger"])
-    if journal.get("ledger_written"):
-        before = journal.get("ledger_before")
+                changed = tree_digest(destination) != digest
+            except OSError:
+                changed = True
+            if changed:
+                problems.append(f"left {destination} in place, because it changed after this run put it there")
+                continue
         try:
-            current = ledger.read_text(encoding="utf-8") if ledger.exists() else None
-            if current != before:
-                if before is None:
-                    ledger.unlink()
-                else:
-                    write_atomic(ledger, before)
-                log.append(f"restored {ledger}")
+            os.rename(destination, source)
+            log.append(f"restored {source}" if digest is None else f"took out {destination}, which this run put there")
         except OSError as error:
-            problems.append(f"could not restore {ledger}: {error}")
+            problems.append(f"could not move {destination} back to {source}: {error}")
+    if not problems and (journal["renames"] or journal["ledger_written"]):
+        ledger, before = Path(journal["ledger"]), journal.get("ledger_before")
+        try:
+            if journal["ledger_written"]:
+                current = ledger.read_text(encoding="utf-8", errors="replace") if ledger.exists() else None
+                if current != before:
+                    if before is None:
+                        ledger.unlink()
+                    else:
+                        write_atomic(ledger, before)
+                    log.append(f"restored {ledger}")
+            journal.update(renames=[], ledger_written=False, committed=False)
+            write_atomic(journal_path, json.dumps(journal, indent=2) + "\n")
+        except OSError as error:
+            problems.append(f"could not restore {ledger} and record the rollback in {journal_path}: {error}")
     stage = journal.get("stage")
-    if stage and Path(stage).exists():
+    if not problems and stage and os.path.lexists(stage):
         old = Path(stage) / "old"
         try:
-            if old.exists() and any(old.iterdir()):
+            if old.is_dir() and any(old.iterdir()):
                 problems.append(f"kept {stage}, which still holds skills that could not be moved back")
             else:
                 remove_tree(Path(stage))
         except OSError as error:
             problems.append(f"could not remove {stage}: {error}")
-    for folder in reversed(journal.get("created", [])):
-        try:
-            Path(folder).rmdir()
-            log.append(f"removed the empty folder {folder}, which this run created")
-        except OSError:
-            pass
+    if not problems:
+        for folder in reversed(journal.get("created", [])):
+            try:
+                Path(folder).rmdir()
+                log.append(f"removed the empty folder {folder}, which this run created")
+            except OSError:
+                pass
     backup = journal.get("backup")
-    if backup and Path(backup).exists():
-        if problems:
-            problems.append(f"kept the backup {backup}")
-        else:
+    if backup and os.path.lexists(backup):
+        if own_backup and not problems:
             try:
                 remove_tree(Path(backup))
             except OSError as error:
-                problems.append(f"could not remove the unused backup {backup}: {error}")
-    if not problems and journal_path.exists():
-        journal_path.unlink()
+                log.append(f"could not remove the unused backup {backup} ({error}); you may delete it")
+        else:
+            log.append(f"kept the backup {backup}")
+    if not problems:
+        try:
+            journal_path.unlink()
+        except OSError as error:
+            problems.append(f"could not delete {journal_path} ({error}); the next run finishes the cleanup")
     return problems
 
 
@@ -1263,6 +1293,7 @@ def result_payload(plan: Plan | None, target: Target | None, state: Path | None,
 
 
 def recover(state: Path, args, out: Reporter) -> tuple[int, dict]:
+    """Finish or roll back the run that a journal found at startup records. It never deletes a backup."""
     journal_path = state / JOURNAL_NAME
     try:
         journal = json.loads(journal_path.read_text(encoding="utf-8"))
@@ -1280,21 +1311,22 @@ def recover(state: Path, args, out: Reporter) -> tuple[int, dict]:
             "run's skills folder, stage, backup, and ledger, so this one was not acted on and nothing was "
             "changed. Check the skills folder and the backups by hand, then move the journal aside."
         )
-    committed = journal.get("committed")
+    committed = journal["committed"] is True
     out.say(f"A previous run ({journal.get('command')} into {journal.get('root')}) did not finish: {journal_path}")
-    out.say("  It will be finished (its changes are complete)." if committed else "  Its changes will be rolled back.")
+    if committed:
+        out.say("  It will be finished (its changes are complete).")
+    elif journal["renames"] or journal["ledger_written"]:
+        out.say("  Its changes will be rolled back.")
+    else:
+        out.say("  Every skill is already in place; only its cleanup is left.")
     if not ask("Recover it now?", args, out):
+        out.say("Not recovered, and nothing was changed. The next install or uninstall offers this again.")
         return EXIT_CANCELLED, {"result": "cancelled", "journal": str(journal_path)}
     log: list[str] = []
     try:
         if committed:
-            stage, problems = journal.get("stage"), []
-            try:
-                if stage and Path(stage).exists():
-                    remove_tree(Path(stage))
-                journal_path.unlink()
-            except OSError as error:
-                problems.append(f"could not finish the cleanup of {stage}: {error}")
+            problem = finish_committed(journal, journal_path)
+            problems = [problem] if problem else []
         else:
             problems = undo(journal, journal_path, log)
     except KeyboardInterrupt:
@@ -1313,7 +1345,11 @@ def recover(state: Path, args, out: Reporter) -> tuple[int, dict]:
     hint = next(filter(None, map(access_hint, problems)), None)
     if hint:
         out.say(f"  {hint}")
-    out.say("Recovered. Nothing else was done; run the command again." if not problems else "Recovery is incomplete.")
+    out.say(
+        "Recovered. Nothing else was done; run the command again."
+        if not problems
+        else "Recovery is incomplete. Fix the problems above, then run this command again."
+    )
     return EXIT_FAILED, {"result": "recovered" if not problems else "failed", "rolled_back": log, "errors": problems}
 
 
@@ -1397,13 +1433,17 @@ def roll_back(transaction: Transaction, error: BaseException, out: Reporter, fin
             rolled_back=transaction.rolled_back, errors=[], stage=stage,
         )
     for line in transaction.rolled_back:
-        out.say(f"  rolled back: {line}")
+        out.say(f"  {line}")
     for problem in problems:
         out.say(f"  PROBLEM: {problem}")
     hint = next(filter(None, map(access_hint, [error, *problems])), None)
     if hint:
         out.say(f"  {hint}")
-    out.say("Every change was rolled back." if not problems else "The rollback is incomplete; see above.")
+    out.say(
+        "Every change was rolled back."
+        if not problems
+        else "The rollback is incomplete. Fix the problems above, then run this command again."
+    )
     return finish(
         EXIT_FAILED, "failed", error="interrupted" if interrupted else str(error), rolled_back=transaction.rolled_back,
         errors=problems, stage=stage,

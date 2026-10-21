@@ -690,12 +690,13 @@ class AtomicityTest(HomesTestCase):
         self.before = tree(self.homes.codex)
         self.ledger_before = self.homes.ledger.read_bytes()
 
-    def assertUnchanged(self) -> None:
+    def assertUnchanged(self, kept_backups: int = 0) -> None:
+        """As before the run; a recovery from disk keeps the backup the run wrote."""
         self.assertEqual(tree(self.homes.codex), self.before)
         self.assertEqual(self.homes.ledger.read_bytes(), self.ledger_before)
         self.assertEqual([path.name for path in self.homes.codex.parent.iterdir()], ["skills"])
         self.assertFalse((self.homes.state / "journal.json").exists())
-        self.assertEqual(self.homes.backups(), [])
+        self.assertEqual(len(self.homes.backups()), kept_backups)
 
     def test_a_failure_in_the_middle_of_the_swap_rolls_everything_back(self) -> None:
         # Nine renames: three upgraded skills out and back in, and three retired
@@ -758,10 +759,10 @@ class AtomicityTest(HomesTestCase):
         self.assertTrue((self.homes.state / "journal.json").exists())
         code, payload, err = run_here(self.homes, "install", "--yes")
         self.assertEqual((code, payload["result"]), (1, "recovered"), err)
-        self.assertUnchanged()
+        self.assertUnchanged(kept_backups=1)
 
     def test_ctrl_c_during_a_recovery_leaves_it_to_the_next_run(self) -> None:
-        with mock.patch.object(INSTALL, "undo", lambda journal, path, log: []):
+        with mock.patch.object(INSTALL, "undo", lambda *args, **kwargs: []):
             with mock.patch.object(INSTALL.os, "rename", failing_rename(3, OSError("power cut"))):
                 code, payload, err = run_here(self.homes, "install", "--yes")
         self.assertEqual(code, 1, err)
@@ -771,7 +772,7 @@ class AtomicityTest(HomesTestCase):
         self.assertIn("Run this command again to roll back the rest.", err)
         code, payload, err = run_here(self.homes, "install", "--yes")
         self.assertEqual((code, payload["result"]), (1, "recovered"), err)
-        self.assertUnchanged()
+        self.assertUnchanged(kept_backups=1)
 
     def test_ctrl_c_before_any_change_is_a_cancel(self) -> None:
         def interrupted(*args, **kwargs):
@@ -826,7 +827,7 @@ class AtomicityTest(HomesTestCase):
 
     def test_an_interrupted_run_is_rolled_back_on_the_next_run(self) -> None:
         # Simulate a crash: the failure happens, but no rollback runs.
-        with mock.patch.object(INSTALL, "undo", lambda journal, path, log: []):
+        with mock.patch.object(INSTALL, "undo", lambda *args, **kwargs: []):
             with mock.patch.object(INSTALL.os, "rename", failing_rename(3, OSError("power cut"))):
                 code, payload, err = run_here(self.homes, "install", "--yes")
         self.assertEqual(code, 1, err)
@@ -836,12 +837,74 @@ class AtomicityTest(HomesTestCase):
         self.assertEqual((payload["interrupted"], payload["active"]), (True, False))
         code, payload, err = run_cli(self.homes, "install", stdin="n\n")
         self.assertEqual((code, payload["result"]), (4, "cancelled"))
+        self.assertIn("Not recovered, and nothing was changed.", err)
         code, payload, err = run_cli(self.homes, "install", "--yes")
         self.assertEqual((code, payload["result"]), (1, "recovered"), err)
-        self.assertUnchanged()
+        [backup] = self.homes.backups()
+        self.assertIn(f"kept the backup {backup}", payload["rolled_back"])
+        self.assertUnchanged(kept_backups=1)
         code, payload, err = run_cli(self.homes, "install", "--yes")
         self.assertEqual(code, 0, err)
         self.assertInstalled(self.homes.codex)
+
+    def test_a_rollback_interrupted_after_its_moves_only_finishes_the_cleanup(self) -> None:
+        # The commit's save fails, so every move and the ledger are undone; then
+        # Ctrl+C stops the cleanup. The next run must not undo any move twice.
+        real_save, real_remove = INSTALL.Transaction.save, INSTALL.remove_tree
+
+        def save(transaction):
+            if transaction.journal.get("committed"):
+                raise OSError("disk full")
+            return real_save(transaction)
+
+        def remove(path):
+            if Path(path).name.startswith(".skills-folder-stage-"):
+                raise KeyboardInterrupt
+            return real_remove(path)
+
+        with mock.patch.object(INSTALL.Transaction, "save", save), mock.patch.object(INSTALL, "remove_tree", remove):
+            code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"], payload["committed"]), (1, "interrupted", False), err)
+        journal = json.loads((self.homes.state / "journal.json").read_text(encoding="utf-8"))
+        self.assertEqual((journal["renames"], journal["ledger_written"], journal["committed"]), ([], False, False))
+        self.assertEqual((tree(self.homes.codex), self.homes.ledger.read_bytes()), (self.before, self.ledger_before))
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "recovered"), err)
+        self.assertIn("only its cleanup is left", err)
+        self.assertUnchanged(kept_backups=1)
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual(code, 0, err)
+        self.assertInstalled(self.homes.codex)
+
+    def backup_removal(self, error: BaseException):
+        """remove_tree that raises error for this run's backup and removes everything else."""
+        real_remove = INSTALL.remove_tree
+
+        def remove(path):
+            if INSTALL.is_within(Path(path), self.homes.state / "backups"):
+                raise error
+            return real_remove(path)
+
+        return mock.patch.object(INSTALL, "remove_tree", remove)
+
+    def test_a_backup_the_rollback_cannot_remove_is_left_with_a_note(self) -> None:
+        with mock.patch.object(INSTALL.os, "rename", failing_rename(4, OSError("injected failure"))):
+            with self.backup_removal(PermissionError(13, "a file in it is open")):
+                code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"], payload["errors"]), (1, "failed", []), err)
+        self.assertIn("Every change was rolled back.", err)
+        self.assertTrue(any("could not remove the unused backup" in line for line in payload["rolled_back"]))
+        self.assertUnchanged(kept_backups=1)
+
+    def test_ctrl_c_while_the_rollback_removes_its_backup(self) -> None:
+        with mock.patch.object(INSTALL.os, "rename", failing_rename(4, OSError("injected failure"))):
+            with self.backup_removal(KeyboardInterrupt()):
+                code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "interrupted"), err)
+        self.assertEqual(tree(self.homes.codex), self.before)
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "recovered"), err)
+        self.assertUnchanged(kept_backups=1)
 
     def test_a_cleanup_failure_after_the_commit_never_rolls_back(self) -> None:
         def stuck(path):
@@ -979,6 +1042,13 @@ class LedgerAndJournalSafetyTest(HomesTestCase):
                 ]
             },
             "absolute name": {"renames": [{"from": str(self.victims[2]), "to": str(stage / "old" / "abs-victim")}]},
+            "move in with no digest": {"renames": [{"from": str(stage / "new" / "game-plan"), "to": str(root / "game-plan")}]},
+            "move in with a malformed digest": {
+                "renames": [{"from": str(stage / "new" / "game-plan"), "to": str(root / "game-plan"), "digest": "x"}]
+            },
+            "committed as text": {"committed": "no"},
+            "committed as a number": {"committed": 1},
+            "ledger flag missing": {"ledger_written": None},
             "run id": {"id": "..", "stage": str(INSTALL.real(root).parent / ".skills-folder-stage-..")},
             "relative root": {"root": "skills"},
         }
@@ -998,6 +1068,42 @@ class LedgerAndJournalSafetyTest(HomesTestCase):
         code, payload, err = run_cli(self.homes, "install", "--yes")
         self.assertEqual((code, payload["result"]), (1, "recovered"), err)
         self.assertFalse((self.homes.state / "journal.json").exists())
+
+    def test_a_recovery_never_deletes_a_backup(self) -> None:
+        # Copies of the journal taken during an uninstall, as file history or a
+        # sync client might bring one back after the run finished, and a
+        # journal that borrows that run's id to name its backup.
+        snapshots = []
+        real_rename = INSTALL.Transaction.rename
+
+        def rename(transaction, source, destination, digest=None):
+            if len(transaction.journal["renames"]) in (0, 3):
+                snapshots.append(transaction.journal_path.read_bytes())
+            return real_rename(transaction, source, destination, digest)
+
+        with mock.patch.object(INSTALL.Transaction, "rename", rename):
+            code, payload, err = run_here(self.homes, "uninstall", "--yes")
+        self.assertEqual(code, 0, err)
+        [backup] = self.homes.backups()
+        kept, (early, late) = tree(backup), snapshots
+        journal = self.homes.state / "journal.json"
+        # The later copy lists moves that no longer match what is on disk: nothing moves, nothing is deleted.
+        journal.write_bytes(late)
+        code, payload, err = run_here(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (1, "failed"), err)
+        self.assertIn("is missing", " ".join(payload["errors"]))
+        self.assertTrue(journal.exists())
+        self.assertEqual(tree(backup), kept)
+        forged = journal_for(self.homes, self.homes.codex, id=backup.name[:23], stage=None, backup=str(backup))
+        for label, text in (("stale", early), ("forged run id", json.dumps(forged).encode("utf-8"))):
+            with self.subTest(journal=label):
+                journal.write_bytes(text)
+                code, payload, err = run_here(self.homes, "install", "--yes")
+                self.assertEqual((code, payload["result"]), (1, "recovered"), err)
+                self.assertIn(f"kept the backup {backup}", payload["rolled_back"])
+                self.assertEqual(tree(backup), kept)
+                self.assertFalse(journal.exists())
+        self.assertNoSuiteSkills(self.homes.codex)
 
     def test_rollback_acts_on_nothing_when_a_step_leaves_the_run(self) -> None:
         journal = journal_for(self.homes, self.homes.codex, backup=str(self.victims[0]))
@@ -1035,7 +1141,7 @@ class LedgerAndJournalSafetyTest(HomesTestCase):
             return real_write(path, text)
 
         # Simulate a crash after the swap: the failure happens, but no rollback runs.
-        with mock.patch.object(INSTALL, "undo", lambda journal, path, log: []):
+        with mock.patch.object(INSTALL, "undo", lambda *args, **kwargs: []):
             with mock.patch.object(INSTALL, "write_atomic", crash_at_the_ledger):
                 code, payload, err = run_here(self.homes, "install", "--yes")
         self.assertEqual(code, 1, err)
@@ -1352,7 +1458,7 @@ class UnreadableTest(HomesTestCase):
         with mock.patch.object(INSTALL, "remove_tree", stuck):
             code, payload, err = run_here(self.homes, "install", "--yes")
         self.assertEqual((code, payload["result"]), (1, "failed"), err)
-        self.assertIn("could not finish the cleanup", " ".join(payload["errors"]))
+        self.assertIn("the cleanup stopped", " ".join(payload["errors"]))
         self.assertTrue((self.homes.state / "journal.json").exists())
         write_journal(self.homes, journal_for(self.homes, self.homes.codex))
         with mock.patch.object(INSTALL, "remove_tree", stuck):
