@@ -6,7 +6,7 @@ Every notable change to this suite is recorded here. The format follows
 file, both plugin manifests, and the newest entry below always name the same
 version.
 
-## [Unreleased]
+## [1.2.0] - 2026-10-22
 
 ### Changed
 

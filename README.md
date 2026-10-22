@@ -10,7 +10,7 @@
   <a href="https://github.com/mewzicians/Skills-Folder/actions/workflows/verify.yml"><img src="https://github.com/mewzicians/Skills-Folder/actions/workflows/verify.yml/badge.svg?branch=main" alt="Verify skill suite workflow status"></a>
 </p>
 
-<p align="center"><strong>Version 1.1.0. The installer is tested on Windows in temporary folders. The plugin routes, the hosts loading the installed skills, and runs on macOS and Linux are documented but not yet verified.</strong></p>
+<p align="center"><strong>Version 1.2.0. Every check, including the installer tests in temporary folders, runs in CI on Windows, macOS, and Linux. The plugin routes and the hosts loading the installed skills are documented but not yet verified.</strong></p>
 
 <p align="center">
   <a href="#install"><img src=".github/assets/nav-install.svg" height="40" alt="Install"></a>
