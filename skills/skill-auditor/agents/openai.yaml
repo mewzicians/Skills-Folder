@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Auditor"
+  short_description: "Audit and strengthen agent skills"
+  default_prompt: "Use $skill-auditor to reconstruct this skill's mission, find trigger and capability gaps, test portability, and recommend mission-preserving repairs."

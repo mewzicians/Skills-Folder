@@ -219,7 +219,7 @@ class FilesystemInventoryTest(unittest.TestCase):
             {
                 ("NO_SKILLS", "skills"),
                 # The auditor's generated copy went with the skills.
-                ("COPY_MISSING", "skills/game-skill-auditor/scripts/skill_frontmatter.py"),
+                ("COPY_MISSING", "skills/skill-auditor/scripts/skill_frontmatter.py"),
                 # So did the skills the verifier knows are explicit-only.
                 ("EXPLICIT_ONLY_MISSING", "skills/game-full-verification"),
                 ("EXPLICIT_ONLY_MISSING", "skills/game-qa-cleanup"),
@@ -262,7 +262,7 @@ class FilesystemInventoryTest(unittest.TestCase):
         self.assertEqual(returncode, 1)
 
     def test_generated_copies_must_match_their_source(self) -> None:
-        copy = self.root / "skills" / "game-skill-auditor" / "scripts" / "skill_frontmatter.py"
+        copy = self.root / "skills" / "skill-auditor" / "scripts" / "skill_frontmatter.py"
         lines = copy.read_bytes().split(b"\n")
         lines[5] += b" # drift"
         copy.write_bytes(b"\n".join(lines))
@@ -270,14 +270,14 @@ class FilesystemInventoryTest(unittest.TestCase):
         self.assertEqual(returncode, 1)
         self.assertEqual(
             [(item["code"], item["path"], item["line"]) for item in payload["problems"]],
-            [("COPY_DRIFT", "skills/game-skill-auditor/scripts/skill_frontmatter.py", 6)],
+            [("COPY_DRIFT", "skills/skill-auditor/scripts/skill_frontmatter.py", 6)],
         )
         copy.write_bytes(b"\n".join(lines[1:]))
         returncode, payload = run_verifier(self.root)
         self.assertEqual(returncode, 1)
         self.assertEqual(
             codes_by_path(payload),
-            {("COPY_HEADER", "skills/game-skill-auditor/scripts/skill_frontmatter.py")},
+            {("COPY_HEADER", "skills/skill-auditor/scripts/skill_frontmatter.py")},
         )
         (self.root / "tools" / "lib" / "skill_frontmatter.py").unlink()
         copy.unlink()
@@ -287,7 +287,7 @@ class FilesystemInventoryTest(unittest.TestCase):
             {(code, path) for code, path in codes_by_path(payload) if code == "COPY_MISSING"},
             {
                 ("COPY_MISSING", "tools/lib/skill_frontmatter.py"),
-                ("COPY_MISSING", "skills/game-skill-auditor/scripts/skill_frontmatter.py"),
+                ("COPY_MISSING", "skills/skill-auditor/scripts/skill_frontmatter.py"),
             },
         )
 
@@ -302,13 +302,13 @@ class FilesystemInventoryTest(unittest.TestCase):
             [(item["code"], item["path"], item["line"]) for item in payload["problems"]],
             [("IDENTICAL_DRIFT", "skills/game-debug/references/project-profile.md", 3)],
         )
-        self.assertIn("skills/game-balance-lab/references/project-profile.md", payload["problems"][0]["message"])
+        self.assertIn("skills/context-continuity/references/project-profile.md", payload["problems"][0]["message"])
 
     def test_every_skill_but_the_auditor_carries_the_router(self) -> None:
         router = "references/project-profile.md"
         (self.root / "skills" / "game-ux-audit" / router).unlink()
         shutil.copyfile(
-            self.root / "skills" / "game-plan" / router, self.root / "skills" / "game-skill-auditor" / router
+            self.root / "skills" / "game-plan" / router, self.root / "skills" / "skill-auditor" / router
         )
         newcomer = self.root / "skills" / "game-newcomer"
         shutil.copytree(self.root / "skills" / "game-plan", newcomer)
@@ -321,7 +321,7 @@ class FilesystemInventoryTest(unittest.TestCase):
             {
                 ("IDENTICAL_MISSING", f"skills/game-ux-audit/{router}"),
                 ("IDENTICAL_MISSING", f"skills/game-newcomer/{router}"),
-                ("IDENTICAL_UNEXPECTED", f"skills/game-skill-auditor/{router}"),
+                ("IDENTICAL_UNEXPECTED", f"skills/skill-auditor/{router}"),
             },
         )
 

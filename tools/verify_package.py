@@ -79,7 +79,7 @@ PROMPT_LINE = re.compile(r"^\s{2}default_prompt:\s*(.*?)\s*$")
 # Generated copies of a canonical file, as {copy: source}. A copy starts with
 # COPY_HEADER naming its source; every byte after that line equals the source.
 GENERATED_COPIES = {
-    "skills/game-skill-auditor/scripts/skill_frontmatter.py": "tools/lib/skill_frontmatter.py",
+    "skills/skill-auditor/scripts/skill_frontmatter.py": "tools/lib/skill_frontmatter.py",
 }
 COPY_HEADER = "# Generated copy of {source}. Edit that file, then recopy it below this line.\n"
 # Files that must stay byte-for-byte identical to one another, as
@@ -89,7 +89,7 @@ COPY_HEADER = "# Generated copy of {source}. Edit that file, then recopy it belo
 # so the exemption stays exact.
 IDENTICAL_GROUPS = {
     # The auditor audits skills rather than a game, so it has no profile router.
-    "skills/*/references/project-profile.md": frozenset({"game-skill-auditor"}),
+    "skills/*/references/project-profile.md": frozenset({"skill-auditor"}),
 }
 
 # Skills with side effects run only when the user names them
@@ -112,8 +112,8 @@ CHARS_PER_TOKEN = 4
 # most 10% at a time, and record the reason here and in docs/SKILL_SCHEMA.md.
 WORKFLOW_BODY_TOKEN_CAP = 1200
 BODY_TOKEN_CAPS = {
-    "game-context-continuity": 2000,
-    "game-skill-auditor": 2500,
+    "context-continuity": 2000,
+    "skill-auditor": 2500,
     # 2000 until the C2 review: raised 10% to restore the scope gate, which
     # classifies a request before any project read, and the project-attached
     # reads, after the working-mode detail moved into a reference.

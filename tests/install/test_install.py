@@ -38,7 +38,13 @@ CHILD_FLAGS = ["-B", "-X", "warn_default_encoding", "-W", "error::EncodingWarnin
 HOME_KEYS = ("HOME", "USERPROFILE", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "LOCALAPPDATA", "XDG_STATE_HOME")
 VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 SKILLS = sorted(path.name for path in (ROOT / "skills").iterdir() if path.is_dir() and not path.name.startswith("."))
-RETIRED = ("game-github-package", "game-skill-creator", "game-skill-installer")
+RETIRED = (
+    "game-context-continuity",
+    "game-github-package",
+    "game-skill-auditor",
+    "game-skill-creator",
+    "game-skill-installer",
+)
 PACKAGE_PARTS = ("install.py", "VERSION", "tools/lib/skill_frontmatter.py", "skills")
 
 
@@ -692,6 +698,32 @@ class UninstallTest(HomesTestCase):
         self.assertEqual(INSTALL.tree_digest(backup / "game-skill-creator"), digest)
         self.assertEqual(sorted(path.name for path in self.homes.codex.iterdir()), [])
 
+    def test_a_renamed_skill_leaves_the_install_record_when_moved(self) -> None:
+        # A 1.1.0 install recorded game-skill-auditor, which later became skill-auditor.
+        code, payload, err = run_cli(self.homes, "install", "--yes")
+        self.assertEqual(code, 0, err)
+        folder = self.homes.codex / "game-skill-auditor"
+        folder.mkdir()
+        (folder / "SKILL.md").write_text(
+            "---\nname: game-skill-auditor\ndescription: Renamed.\n---\n", encoding="utf-8", newline="\n"
+        )
+        key = INSTALL.root_key(self.homes.codex)
+        ledger = json.loads(self.homes.ledger.read_text(encoding="utf-8"))
+        ledger["roots"][key]["skills"]["game-skill-auditor"] = {
+            "version": "1.1.0", "digest": INSTALL.tree_digest(folder)
+        }
+        self.homes.ledger.write_text(json.dumps(ledger), encoding="utf-8", newline="\n")
+        code, payload, err = run_cli(self.homes, "install", "--yes")
+        self.assertEqual((code, payload["result"]), (0, "done"), err)
+        [item] = payload["retired"]
+        self.assertEqual((item["skill"], item["action"]), ("game-skill-auditor", "retire"))
+        self.assertIn("renamed to skill-auditor", item["reason"])
+        self.assertFalse(folder.exists())
+        skills = json.loads(self.homes.ledger.read_text(encoding="utf-8"))["roots"][key]["skills"]
+        self.assertNotIn("game-skill-auditor", skills)
+        self.assertEqual(sorted(skills), SKILLS)
+        self.assertInstalled(self.homes.codex)
+
 
 def failing_rename(after: int, error: BaseException):
     """os.rename that raises once, on call number after + 1, and otherwise renames."""
@@ -730,9 +762,9 @@ class AtomicityTest(HomesTestCase):
         self.assertEqual(len(self.homes.backups()), kept_backups)
 
     def test_a_failure_in_the_middle_of_the_swap_rolls_everything_back(self) -> None:
-        # Nine renames: three upgraded skills out and back in, and three retired
+        # Eleven renames: three upgraded skills out and back in, and five retired
         # skills out. Fail on the first, an early, a middle, and the last one.
-        for after in (0, 1, 4, 8):
+        for after in (0, 1, 5, 10):
             with self.subTest(after=after):
                 with mock.patch.object(INSTALL.os, "rename", failing_rename(after, OSError("injected failure"))):
                     code, payload, err = run_here(self.homes, "install", "--yes")

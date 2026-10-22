@@ -280,7 +280,7 @@ def plant_mutation(mutated_package: Path, category: str) -> tuple[list[str], str
         expected = "The audit must report false completion and restore a nonzero failure exit."
     elif category == "metadata":
         path = metadata_path
-        old = "$game-skill-auditor"
+        old = "$skill-auditor"
         new = "$ordinary-editor"
         description = "Point the default prompt at the wrong skill identity."
         expected = "The audit must report stale metadata and restore the target skill name."
@@ -480,7 +480,7 @@ def build_example() -> dict:
             "invocation_mode": "auto-dispatch",
             "expected": expected_activation,
             "observed": expected_activation,
-            "selected_skill": "game-skill-auditor" if expected_activation else "",
+            "selected_skill": "skill-auditor" if expected_activation else "",
         }
         criterion_results = [
             {
@@ -1588,7 +1588,7 @@ def wrong_mutated_skill_identity(manifest: dict) -> None:
     write_text_atomic(
         skill,
         skill.read_text(encoding="utf-8").replace(
-            "name: game-skill-auditor",
+            "name: skill-auditor",
             "name: wrong-mutation-target",
             1,
         ),
@@ -2530,7 +2530,7 @@ def prepare_example() -> dict:
     write_text_atomic(
         unrelated_skill,
         unrelated_skill.read_text(encoding="utf-8").replace(
-            "name: game-skill-auditor",
+            "name: skill-auditor",
             "name: unrelated-before",
             1,
         ),

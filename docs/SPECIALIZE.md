@@ -8,7 +8,7 @@ enough. Neither step changes this repository.
 
 Copy `templates/GAME_PROJECT_PROFILE.template.md` into the game repository as
 `GAME_PROJECT_PROFILE.md` and fill in its fields. Every generic skill except
-`game-skill-auditor`, which audits skills rather than a game, reads it through
+`skill-auditor`, which audits skills rather than a game, reads it through
 its `references/project-profile.md`.
 
 The profile holds pointers: repository-relative paths, status labels,
@@ -32,7 +32,7 @@ with your agent host's own skill-creator. This suite no longer ships one.
 
   ```text
   python -B tools/validate_skill.py --level spec path/to/skill
-  python -B skills/game-skill-auditor/scripts/audit_skill.py path/to/skill --strict
+  python -B skills/skill-auditor/scripts/audit_skill.py path/to/skill --strict
   ```
 
 ## 3. Keep Volatile Status Out Of Skills

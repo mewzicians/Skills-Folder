@@ -69,7 +69,7 @@ jobs:
           status=0
           for skill in skills/*/; do
             if ! output=$(python -B -X warn_default_encoding -W error::EncodingWarning \
-                skills/game-skill-auditor/scripts/audit_skill.py "$skill" --json --strict); then
+                skills/skill-auditor/scripts/audit_skill.py "$skill" --json --strict); then
               echo "$output"
               echo "::error::Strict audit failed: $skill"
               status=1
@@ -95,13 +95,13 @@ jobs:
       - name: Run the continuity self-test
         run: >-
           python -B -X warn_default_encoding -W error::EncodingWarning
-          skills/game-context-continuity/scripts/continuity_ledger.py self-test
+          skills/context-continuity/scripts/continuity_ledger.py self-test
 
       # Before PyYAML is installed, so the default run is shown to need none.
       - name: Run the auditor adversarial self-test
         run: >-
           python -B -X warn_default_encoding -W error::EncodingWarning
-          skills/game-skill-auditor/scripts/self_test.py
+          skills/skill-auditor/scripts/self_test.py
 
       - name: Install the CI-only test dependency
         run: python -m pip install --disable-pip-version-check --require-hashes -r requirements-ci.txt

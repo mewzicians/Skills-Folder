@@ -199,8 +199,8 @@ Each body cap is a deliberate ratchet, not a target:
 | Skill | Cap (estimated tokens) | Reason |
 | --- | --- | --- |
 | Every workflow skill | 1,200 | A workflow body holds its contract; project detail lives in the project profile. |
-| `game-context-continuity` | 2,000 | Its body carries the ledger procedure that recovery depends on. |
-| `game-skill-auditor` | 2,500 | Its body carries the audit contract, evidence gates, and readiness calibration; method detail lives in its references. |
+| `context-continuity` | 2,000 | Its body carries the ledger procedure that recovery depends on. |
+| `skill-auditor` | 2,500 | Its body carries the audit contract, evidence gates, and readiness calibration; method detail lives in its references. |
 | `music-composer` | 2,200 | 2,000 until the C2 review. Raised 10% to restore the scope gate, which classifies a request before any project read, and the project-attached reads, after the working-mode detail moved into a reference. |
 
 When a body outgrows its cap, move detail into an on-demand reference linked
@@ -218,7 +218,7 @@ python -B tools/verify_package.py --budgets
 
 - `tools/validate_skill.py` is the suite's frontmatter gate.
 - The auditor carries a generated copy of this module,
-  `skills/game-skill-auditor/scripts/skill_frontmatter.py`, behind its own
+  `skills/skill-auditor/scripts/skill_frontmatter.py`, behind its own
   `scripts/validate_skill.py`, which checks one skill at the spec level and
   also fails on the findings that Codex's validator rejects but the spec
   level only warns about or allows, such as `TAB`, `UNKNOWN_KEY`,
@@ -227,7 +227,7 @@ python -B tools/verify_package.py --budgets
   PyYAML nor Codex can still produce structural evidence.
   `tools/verify_package.py` fails if the copy differs from this module after
   its one header line, so edit this module and then recopy it.
-- `skills/game-skill-auditor/scripts/audit_skill.py` keeps its own frontmatter
+- `skills/skill-auditor/scripts/audit_skill.py` keeps its own frontmatter
   checks until a later v1.1 step moves it onto this module.
 - The schema module never imports PyYAML. PyYAML may appear only in CI, as a
   test dependency.

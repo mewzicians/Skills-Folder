@@ -22,11 +22,11 @@ from types import ModuleType
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-AUDITOR = ROOT / "skills" / "game-skill-auditor"
+AUDITOR = ROOT / "skills" / "skill-auditor"
 AUDIT_SCRIPT = AUDITOR / "scripts" / "audit_skill.py"
 SELF_TEST = AUDITOR / "scripts" / "self_test.py"
 VALIDATOR = AUDITOR / "scripts" / "validate_skill.py"
-LEDGER_SCRIPT = ROOT / "skills" / "game-context-continuity" / "scripts" / "continuity_ledger.py"
+LEDGER_SCRIPT = ROOT / "skills" / "context-continuity" / "scripts" / "continuity_ledger.py"
 CHILD_FLAGS = ["-B", "-X", "warn_default_encoding", "-W", "error::EncodingWarning"]
 BOM = b"\xef\xbb\xbf"
 
@@ -384,7 +384,7 @@ class AssessorIdentityTest(unittest.TestCase):
         return package
 
     def test_a_bom_hides_the_package_name(self) -> None:
-        self.assertEqual(self.assessor.skill_package_name(self.copy_auditor("plain")), "game-skill-auditor")
+        self.assertEqual(self.assessor.skill_package_name(self.copy_auditor("plain")), "skill-auditor")
         self.assertEqual(self.assessor.skill_package_name(self.copy_auditor("bom", bom=True)), "")
 
     def test_lineage_requires_a_name(self) -> None:

@@ -66,8 +66,15 @@ JOURNAL_NAME = "journal.json"
 LOCK_NAME = "install.lock"
 STAGE_PREFIX = ".skills-folder-stage-"
 LEDGER_SCHEMA = 1
-# Skills that versions 1.0.x installed and later versions removed or renamed.
-RETIRED = ("game-github-package", "game-skill-creator", "game-skill-installer")
+# Skills that earlier versions installed and later versions renamed or removed,
+# each mapped to the skill that replaced it, or to None when nothing did.
+RETIRED = {
+    "game-context-continuity": "context-continuity",
+    "game-github-package": "game-release",
+    "game-skill-auditor": "skill-auditor",
+    "game-skill-creator": None,
+    "game-skill-installer": None,
+}
 # Files a host or interpreter may add to an installed skill. They are left out
 # of digests and new copies, and kept in backups.
 DEBRIS_DIRS = frozenset({"__pycache__"})
@@ -864,6 +871,11 @@ def plan_install(target: Target, state: Path, source: Source, ledger: dict, args
     return plan
 
 
+def retired_reason(name: str) -> str:
+    successor = RETIRED[name]
+    return f"renamed to {successor}" if successor else "removed from the suite"
+
+
 def plan_retired(target: Target, args) -> list[Item]:
     items = []
     for name in RETIRED:
@@ -873,9 +885,9 @@ def plan_retired(target: Target, args) -> list[Item]:
         if item.state in ("link", "unreadable"):
             item.action = "keep"
         elif args.keep_retired:
-            item.action, item.reason = "keep", "retired in 1.1.0; kept because of --keep-retired"
+            item.action, item.reason = "keep", f"{retired_reason(name)}; kept because of --keep-retired"
         else:
-            item.action, item.reason = "retire", "retired in 1.1.0; offered for a move to backups"
+            item.action, item.reason = "retire", f"{retired_reason(name)}; offered for a move to backups"
         items.append(item)
     return items
 
@@ -938,7 +950,7 @@ def show_plan(plan: Plan, out: Reporter) -> None:
             out.say(f"  {'':<16} {'':<26} to proceed anyway, add {item.override}")
     if plan.retired:
         out.say()
-        out.say("  Skills that 1.0.x installed and 1.1.0 retired:")
+        out.say("  Skills that an earlier version installed and this one renamed or removed:")
         for item in plan.retired:
             out.say(f"  {LABELS[item.action]:<16} {item.skill:<26} {item.reason}")
     for warning in plan.warnings:
@@ -1165,6 +1177,9 @@ def apply_records(skills: dict, plan: Plan) -> None:
             }
         elif item.action == "remove":
             skills.pop(item.skill, None)
+    # A retired skill moved to backups is no longer installed, so drop any record of it.
+    for item in plan.moves:
+        skills.pop(item.skill, None)
 
 
 def same_text(first: object, second: Path) -> bool:
@@ -1423,7 +1438,7 @@ def change_locked(command: str, args, out: Reporter, source: Source, target: Tar
         return finish(EXIT_CANCELLED, "cancelled")
     if plan.moves and not ask(f"Also move the {len(plan.moves)} retired skill(s) to backups?", args, out):
         for item in plan.moves:
-            item.action, item.reason = "keep", "retired in 1.1.0; you chose to leave it"
+            item.action, item.reason = "keep", f"{retired_reason(item.skill)}; you chose to leave it"
         if not plan.changes:
             out.say("Nothing was changed.")
             return finish(EXIT_CANCELLED, "cancelled")
@@ -1526,7 +1541,7 @@ def status_of(target: Target, state: Path, source: Source, ledger: dict, out: Re
         item = inspect_copy(name, target.root / name, None, None, None)
         if item.state != "absent":
             retired.append(item)
-            out.say(f"  {'retired':<13} {item.skill:<26} from 1.0.x; install offers to move it to backups")
+            out.say(f"  {'retired':<13} {item.skill:<26} {retired_reason(name)}; install offers to move it to backups")
     duplicates = [
         {"skill": name, "other_path": str(path), "root": label}
         for name, label, path in duplicate_copies(target, source)
@@ -1607,7 +1622,7 @@ def build_parser() -> argparse.ArgumentParser:
     where.add_argument("--json", action="store_true", dest="as_json", help="print a JSON result on stdout")
     change = argparse.ArgumentParser(add_help=False)
     change.add_argument("--yes", "-y", action="store_true", help="apply the plan without asking")
-    change.add_argument("--keep-retired", action="store_true", help="leave retired 1.0.x skills in place")
+    change.add_argument("--keep-retired", action="store_true", help="leave renamed or removed skills from earlier versions in place")
     install = commands.add_parser("install", parents=[where, change], help="install or upgrade every skill")
     install.add_argument("--allow-downgrade", action="store_true", help="replace a newer installed version")
     install.add_argument(

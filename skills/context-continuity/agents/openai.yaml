@@ -1,0 +1,4 @@
+interface:
+  display_name: "Context Continuity"
+  short_description: "Preserve complex work across handoffs"
+  default_prompt: "Use $context-continuity to preserve this task across compaction or handoff with a verified resume ledger."

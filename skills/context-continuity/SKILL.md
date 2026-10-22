@@ -1,14 +1,14 @@
 ---
-name: game-context-continuity
-description: Preserve, recover, and verify continuity for complex game-development work across context compaction, interruptions, and agent handoffs. Use when another context must resume material decisions, code, tests, or release state, or to recover after compaction or a handoff; not for short tasks.
+name: context-continuity
+description: Preserve, recover, and verify continuity for complex development work across context compaction, interruptions, and agent handoffs. Use when another context must resume material decisions, code, tests, or release state, or to recover after compaction or a handoff; not for short tasks.
 ---
 
-# Game Context Continuity
+# Context Continuity
 
-For game projects, read [references/project-profile.md](references/project-profile.md)
-and use it to locate implementation, design, decision, test, build, and release
-truth. The continuity ledger records current task deltas; it does not replace
-those durable project sources.
+Read [references/project-profile.md](references/project-profile.md) and use
+it to locate implementation, design, decision, test, build, and release truth.
+The continuity ledger records current task deltas; it does not replace those
+durable project sources.
 
 Compaction cannot be prevented by a skill. Preserve the state needed to resume
 correctly outside the conversation, then verify that state against the newest

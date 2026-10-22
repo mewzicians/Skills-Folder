@@ -6,6 +6,20 @@ Every notable change to this suite is recorded here. The format follows
 file, both plugin manifests, and the newest entry below always name the same
 version.
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** `game-context-continuity` is renamed to `context-continuity`,
+  and `game-skill-auditor` to `skill-auditor`. Neither depends on a game, so
+  their names, descriptions, and Codex display names no longer say so. Call
+  them as `$context-continuity` and `$skill-auditor`. `install.py` offers to
+  move the old folders to backups; see the README's
+  [Upgrading from 1.1.x](README.md#upgrading-from-11x).
+- When `install.py` moves a renamed or removed skill to backups, it also
+  removes that skill's install record, and its messages name the skill that
+  replaced it.
+
 ## [1.1.0] - 2026-10-20
 
 Items marked **Breaking** change how you install or invoke the suite. To

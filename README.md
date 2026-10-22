@@ -60,6 +60,7 @@ themselves stay generic.
 | Install the skills for Claude Code or Codex | [Install](#install) |
 | See what each skill does | [The 12 skills](#the-12-skills) |
 | Check which agent hosts work and what was tested | [Supported hosts](#supported-hosts) and [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) |
+| Upgrade from version 1.1 | [Upgrading from 1.1.x](#upgrading-from-11x) |
 | Upgrade from version 1.0 | [Upgrading from 1.0.x](#upgrading-from-10x) |
 | See what changed in each version | [CHANGELOG.md](CHANGELOG.md) |
 | Point the skills at your own game | [Fit it to your game](#fit-it-to-your-game) |
@@ -88,8 +89,8 @@ description.
 | [`game-qa-cleanup`](skills/game-qa-cleanup/SKILL.md) | **Explicit only.** Reconcile documentation, handoffs, mirrors, and manifests without changing gameplay or removing files on its own. |
 | [`game-full-verification`](skills/game-full-verification/SKILL.md) | **Explicit only.** Gather complete ship-readiness evidence across requirements, rules, UI, saves, performance, and packaging. |
 | [`game-release`](skills/game-release/SKILL.md) | **Explicit only.** Synchronize and byte-check release copies, such as a public mirror, run pre-publish checks, then stop until you say to publish. |
-| [`game-context-continuity`](skills/game-context-continuity/SKILL.md) | Save and recover the state of long work across context compaction, interruptions, and handoffs. |
-| [`game-skill-auditor`](skills/game-skill-auditor/SKILL.md) | Audit, test, and repair agent skills, including these. |
+| [`context-continuity`](skills/context-continuity/SKILL.md) | Save and recover the state of long work across context compaction, interruptions, and handoffs. Works on any project, not only games. |
+| [`skill-auditor`](skills/skill-auditor/SKILL.md) | Audit, test, and repair agent skills, including these. Works on any skill, not only game skills. |
 
 Every skill follows the same habits: read the game and its records before
 acting, keep your approvals and status labels intact, prefer evidence a
@@ -286,6 +287,19 @@ If a run prints `Recovery is incomplete` or `The rollback is incomplete`:
    move `journal.json` away from `install-ledger.json` and run the command
    again.
 
+## Upgrading from 1.1.x
+
+After 1.1.x, two skills that work on any project, not only games, dropped
+the `game-` prefix: `game-context-continuity` is now `context-continuity`,
+and `game-skill-auditor` is now `skill-auditor`.
+
+1. Run `python install.py install`. It installs the new names and offers to
+   move the two old folders to backups, which also removes them from the
+   install record. Add `--keep-retired` to leave the old folders in place.
+2. If you call either skill by name, use `$context-continuity` and
+   `$skill-auditor` in Codex, or `/context-continuity` and `/skill-auditor`
+   in Claude Code.
+
 ## Upgrading from 1.0.x
 
 Version 1.0 installed with `install-skills.ps1` into `$CODEX_HOME\skills` or
@@ -324,7 +338,7 @@ with Python: `install.py` and `tools/verify_package.py`.
    yes or no. The profile only points to the files that hold your rules and
    status. Your repository's instruction files, such as `AGENTS.md` and
    `CLAUDE.md`, win over it, and a blank field keeps the generic default.
-3. Eleven of the twelve skills read the profile. `game-skill-auditor`
+3. Eleven of the twelve skills read the profile. `skill-auditor`
    audits skills rather than a game, so it does not.
 
 [docs/SPECIALIZE.md](docs/SPECIALIZE.md) explains when a game-specific skill
@@ -376,14 +390,14 @@ python -B tools/verify_package.py --budgets
 python -B tools/verify_package.py --lint
 python -B tools/verify_package.py --metadata
 python -B tools/validate_skill.py
-python -B skills/game-skill-auditor/scripts/audit_skill.py skills/game-plan --json --strict
+python -B skills/skill-auditor/scripts/audit_skill.py skills/game-plan --json --strict
 python -B tests/frontmatter/test_frontmatter.py
 python -B tests/verify/test_verify_package.py
 python -B tests/scripts/test_skill_scripts.py
 python -B tests/zip/test_build_repository_zip.py
 python -B tests/install/test_install.py
-python -B skills/game-context-continuity/scripts/continuity_ledger.py self-test
-python -B skills/game-skill-auditor/scripts/self_test.py
+python -B skills/context-continuity/scripts/continuity_ledger.py self-test
+python -B skills/skill-auditor/scripts/self_test.py
 ```
 
 The PyYAML comparison, `tests/frontmatter/test_differential.py`, needs the
