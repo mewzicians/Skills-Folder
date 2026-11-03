@@ -700,7 +700,9 @@ def validate_ledger(
             issues,
             "ERROR",
             "WORKSPACE_FINGERPRINT",
-            "Ledger is bound to a different workspace.",
+            "Ledger is bound to a different workspace. If the workspace was "
+            "deliberately moved, verify it is the same project and rebind with "
+            "the 'fingerprint' command.",
         )
 
     current = fields_in_section(text, "## Current State")
@@ -1017,6 +1019,15 @@ def command_check(args: argparse.Namespace) -> int:
             print(f"[{issue['severity']}] {issue['code']} - {issue['message']}")
         print(f"Summary: {errors} error(s), {warnings} warning(s).")
     return 1 if errors or (args.strict and warnings) else 0
+
+
+def command_fingerprint(args: argparse.Namespace) -> int:
+    workspace = Path(args.workspace).resolve()
+    if not workspace.is_dir():
+        print(f"Workspace directory does not exist: {workspace}", file=sys.stderr)
+        return 2
+    print(workspace_fingerprint(workspace))
+    return 0
 
 
 def command_summary(args: argparse.Namespace) -> int:
@@ -1357,6 +1368,43 @@ def command_self_test(_: argparse.Namespace) -> int:
         ):
             failures.append("copied ledger was not rejected in a different workspace")
 
+        fingerprint_code, fingerprint_out, _ = invoke(
+            command_fingerprint,
+            argparse.Namespace(workspace=str(copied_workspace)),
+        )
+        rebound = copied_workspace / "rebound.md"
+        write_text_atomic(
+            rebound,
+            re.sub(
+                r"(?m)^- Workspace fingerprint: .+$",
+                f"- Workspace fingerprint: {fingerprint_out.strip()}",
+                base,
+                count=1,
+            ),
+        )
+        rebound_findings = validate_ledger(rebound, copied_workspace)
+        cases += 1
+        if fingerprint_code != 0 or any(
+            item["code"] in {"WORKSPACE", "WORKSPACE_FINGERPRINT"}
+            for item in rebound_findings
+        ):
+            failures.append("a verified relocation could not rebind the ledger")
+
+        recovery_check, recovery_out, _ = invoke(
+            command_check,
+            argparse.Namespace(
+                ledger=str(stale),
+                workspace=str(workspace),
+                max_age_hours=24.0,
+                allow_stale=False,
+                strict=False,
+                json=False,
+            ),
+        )
+        cases += 1
+        if recovery_check != 0 or "STALE" not in recovery_out:
+            failures.append("recovery checking did not report age as a warning")
+
         init_workspace = workspace / "init-workspace"
         init_workspace.mkdir()
         init_args = argparse.Namespace(
@@ -1503,6 +1551,13 @@ def build_parser() -> argparse.ArgumentParser:
     check_parser.add_argument("--strict", action="store_true")
     check_parser.add_argument("--json", action="store_true")
     check_parser.set_defaults(func=command_check)
+
+    fingerprint_parser = subparsers.add_parser(
+        "fingerprint",
+        help="Print a workspace's fingerprint, for rebinding a moved ledger.",
+    )
+    fingerprint_parser.add_argument("--workspace", default=".")
+    fingerprint_parser.set_defaults(func=command_fingerprint)
 
     summary_parser = subparsers.add_parser(
         "summary",

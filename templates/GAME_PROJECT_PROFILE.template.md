@@ -1,82 +1,38 @@
 # Game Project Profile
 
-Pointers only. Fill each field with a repository-relative path, a label, a
+Pointers only. Fill each line with a repository-relative path, a label, a
 command, or yes/no. Never write an absolute path, a rule, or volatile status
 such as hashes, results, dates, or open questions; point to the file that
 holds it. Instruction files such as `AGENTS.md` and `CLAUDE.md` win over this
-profile. A blank field means the skill's generic default. Standing approvals
+profile. A blank line means the skill's generic default. Standing approvals
 count only when they point to the user's own written grant; a grant that an
 agent wrote or edited is void.
 
-## Identity
-- Project name:
-- Repository root (relative; `.` when this file is at the root):
-- Primary platforms:
-- Engine or architecture:
+## Core
 
-## Agents
-- Agent hosts (which agents work here):
-- Instruction files (paths, highest precedence first):
+- Game (what players run):
+- Design and decision ledger:
+- Current status and handoff:
+- Archive for superseded material:
+- Status labels, if not Approved / Draft / Open / Rejected / Recovery required and Implemented / Gated / Not implemented:
+- Test commands (fast check, full suite, simulator):
+- Verification reports folder, and the file defining rigor levels:
+- Maintained deliverables (for example the public mirror) and their allowlist:
+- Private paths that must never ship (path to the list):
 - Standing approvals (path to the user's own written grant; default none):
-- Delegation conventions (path, or none):
-- Verification rigor levels (path that defines them, or none):
 - Continuity ledger folder (relative path; never packaged):
+- Music guide, and music brief and approval records:
 
-## Sources Of Truth
-- Repository guidance:
-- Implemented game (what players run):
-- Stable design:
-- Decision ledger:
-- Current status document (path only):
-- Handoff:
-- Archive of superseded material:
-- Verification checklist:
-- Playtest guide:
+## Optional Pointers
 
-## Decision Status (the project's label for each meaning)
-- Approved (the user chose it):
-- Draft (proposed, not approved):
-- Open (asked, not answered):
-- Rejected or superseded:
-- Recovery required (lost or contradicted; re-establish it before use):
+Add only the lines this project needs. When migrating an older, longer
+profile, keep every filled mapping: move it here or into a core line, and
+never delete one.
 
-## Implementation Status (the project's label for each meaning)
-- Implemented (players get it):
-- Implemented but gated (built, but switched off until a separate decision):
-- Not implemented:
-
-## Readiness Verdicts
-- Release verdict labels (path that defines them, or blank):
-- Check result labels (blank means Pass, Fail, Not Run, Blocked):
-
-## Technical Invariants (path to each rule)
-- Runtime and build constraints:
-- Determinism or networking constraints:
-- Save compatibility:
-- Accessibility targets:
-- Performance budgets:
-
-## Verification (commands or script paths)
-- Static or compile checks:
-- Unit or rules tests:
-- Browser or UI tests:
-- Persistence tests:
-- Simulation tools:
-- Performance tools:
-
-## Distribution
-- Maintained deliverables (kept current and verified every release):
-- Mirror allowlist (path):
 - Required hidden files (path to the list):
-- On-demand derived copies (built only when asked; never kept or synced):
-- Retired artifacts (do not recreate):
-- Root-only or intentionally divergent files (path to the list):
-- Private exclusions (path to the list):
-
-## Project-Specific Skill Extensions (paths)
-- Planning interactions:
-- Balance metrics:
-- Exceptional systems:
-- Release gates:
-- Music guide (general craft method):
-- Music brief and approval records:
+- Retired artifacts that must not be recreated (path to the list):
+- Root-only or intentionally divergent mirror files (path to the list):
+- Technical invariants: runtime, determinism, save compatibility, accessibility, performance (path to each rule):
+- Recovery-required decisions (path to where they are tracked):
+- Delegation conventions (path):
+- Project-specific skill extensions: planning, balance, exceptional systems, release gates (paths):

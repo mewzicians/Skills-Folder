@@ -81,8 +81,11 @@ One concrete paragraph describing the desired end state.
   binds it to the workspace supplied on the command line.
 - `Workspace fingerprint` hashes the canonical workspace path so a ledger
   copied into an unrelated workspace fails validation without storing the raw
-  path. A deliberately moved workspace requires full revalidation before
-  rebinding.
+  path. To rebind a deliberately moved workspace, first confirm it is the same
+  project (same remote and commit, and the Work Inventory paths exist with the
+  recorded states), then replace the line with the output of
+  `continuity_ledger.py fingerprint --workspace <workspace>`, increment the
+  revision, and revalidate every material claim before relying on the ledger.
 - `Latest user direction` is the newest controlling instruction, not the
   original request when priorities changed.
 - `Objective` describes an end state rather than a vague topic.

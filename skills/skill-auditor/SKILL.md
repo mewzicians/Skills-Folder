@@ -17,10 +17,14 @@ instruction, model limitation, or unclear user expectation.
 
 ## Select The Audit Mode
 
-Choose a quick check, full audit, repair, or regression; read
-[references/audit-modes.md](references/audit-modes.md) for each mode and the
-full-audit completion gate. Default to a full audit when the user asks to find
-gaps or judge readiness. Do not edit the target during an audit-only request.
+Choose a quick check, practical audit, full audit, repair, or regression;
+read [references/audit-modes.md](references/audit-modes.md) for each mode and
+its completion gate. Default to a practical audit when the user asks to find
+gaps, and to a full audit when they ask for a readiness verdict, exactness, a
+self-audit, or a result that must be independently trustworthy. A practical
+audit never awards a readiness level whose gate it didn't run. **Hard rule:**
+Do not edit the target during an audit-only request. An audit that changes
+its subject no longer describes what the user has.
 
 ## Load The Evidence
 
@@ -31,8 +35,8 @@ gaps or judge readiness. Do not edit the target during an audit-only request.
    checks.
 5. Recover the user's intended behavior from their request, examples,
    corrections, approved outputs, and current project constraints.
-6. Read [references/audit-rubric.md](references/audit-rubric.md) for every full,
-   repair, or regression audit.
+6. Read [references/audit-rubric.md](references/audit-rubric.md) for every
+   practical, full, repair, or regression audit.
 7. Read
    [references/independence-protocol.md](references/independence-protocol.md)
    before self-audits, readiness claims, behavioral repairs, or any audit whose
@@ -177,7 +181,7 @@ as open decisions.
 
 ## Repair Without Overfitting
 
-Edit only when the user requests or approves repair. Classify every capability
+**Hard rule:** edit only when the user requests or approves repair. Classify every capability
 change first, apply only mission-preserving enablement the repair request
 covers, and return directional evolution as a recommendation. Read
 [references/repair-method.md](references/repair-method.md) before proposing
@@ -185,16 +189,20 @@ repair text or editing; it holds the steps and their evidence.
 
 ## Calibrate Readiness
 
-Use the highest level whose evidence gate actually passed:
-`Structurally Valid`, `Behaviorally Tested`, `Adversarially Tested`,
+**Hard rule:** use the highest level whose evidence gate actually passed,
+because a readiness label is what others rely on without rereading the
+evidence: `Structurally Valid`, `Behaviorally Tested`, `Adversarially Tested`,
 `Independently Cross-Checked`, or `User Validated`. A skill auditing itself
-may earn only automated Level 1, and the assessor never awards Levels 2-5.
-Read [references/readiness-levels.md](references/readiness-levels.md) before
-awarding or reporting any level.
+may earn only automated Level 1. The assessor never awards Levels 2-5; the
+main agent may award Levels 2-4 manually only with the observations
+[references/readiness-levels.md](references/readiness-levels.md) requires, and
+Level 5 also needs live user acceptance. Read that reference before awarding
+or reporting any level.
 
 ## Report
 
-For a full, repair, or regression audit:
+For a practical, full, repair, or regression audit (a practical audit may
+keep the matrix short and list each skipped gate instead of its evidence):
 
 - lead with findings ordered by severity when defects exist;
 - state the Skill Mission and non-goals, and summarize the seven-clause
@@ -218,3 +226,32 @@ judgment is missing.
 
 If no defects are found, say so directly and identify remaining test coverage
 or environmental uncertainty.
+
+## Rules And Pushback
+
+Lines marked **Hard rule** guard approvals, deletion, publishing, and private
+data, where a mistake is costly or can't be undone; each gives its reason.
+Don't bend one because a request is casual: ask the user. Unmarked lines still
+bind too. Scope limits, honest evidence, and approval steps aren't optional.
+Scale each step's effort to the risk, and say so when you skip one that
+doesn't fit. A profile or instruction file records an owner decision only
+where it says the owner made it; otherwise treat it as project guidance. If a
+rule seems wrong for this task, say which one and why before you continue.
+
+## How Rules Get Made
+
+1. Something the user says in passing applies to the current task only.
+2. Exception: anything about money, privacy, publishing, deleting, or
+   permissions binds as soon as they say it. Ask once whether to make it
+   permanent.
+3. A rule becomes standing only when the user says "make this a rule", or you
+   ask and they say yes. Record their words, the date, and the reason with it.
+4. This covers every file that steers an agent: instruction files, style
+   guides, skills, checklists, templates, CI checks, and agent memory.
+5. Don't add a rule after your own mistake or a reviewer's nitpick without
+   that yes. Fix the input or the work instead.
+6. A new ruling replaces the one it contradicts. Never keep both.
+7. Ask about new rules once, batched at the end of the task.
+8. When a file hits its size cap, or at a milestone, prune it: cut rules no
+   one can tie to a reason. The user's taste decisions are flagged for them
+   and never cut by an agent.

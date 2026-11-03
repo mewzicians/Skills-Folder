@@ -777,6 +777,38 @@ def description_of_length(length: int) -> str:
     return text + "x" * (length - len(text))
 
 
+class SharedSectionTest(unittest.TestCase):
+    """Every SKILL.md ends with the same shared rules section."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="verify-shared-")
+        self.root = copy_package(Path(self.temp.name) / "package")
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_a_missing_or_edited_section_fails(self) -> None:
+        debug = self.root / "skills" / "game-debug" / "SKILL.md"
+        text = debug.read_text(encoding="utf-8")
+        debug.write_text(text[: text.index("\n## Rules And Pushback\n") + 1], encoding="utf-8", newline="\n")
+        plan = self.root / "skills" / "game-plan" / "SKILL.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8").replace("Never keep both.", "Keep both.", 1),
+            encoding="utf-8",
+            newline="\n",
+        )
+        returncode, payload = run_verifier(self.root)
+        self.assertEqual(returncode, 1)
+        self.assertEqual(
+            codes_by_path(payload),
+            {
+                ("SHARED_SECTION_MISSING", "skills/game-debug/SKILL.md"),
+                ("SHARED_SECTION_DRIFT", "skills/game-plan/SKILL.md"),
+            },
+            payload["problems"],
+        )
+
+
 class BudgetTest(unittest.TestCase):
     """Descriptions, their total, and body token estimates are capped."""
 
@@ -796,7 +828,11 @@ class BudgetTest(unittest.TestCase):
         for name, row in budgets["skills"].items():
             with self.subTest(skill=name):
                 self.assertLessEqual(row["description_characters"], budgets["description_cap"])
-                self.assertLessEqual(row["body_estimated_tokens"], row["body_token_cap"])
+                self.assertLessEqual(row["load_estimated_tokens"], row["load_token_cap"])
+                self.assertEqual(
+                    row["load_estimated_tokens"],
+                    row["body_estimated_tokens"] + row["always_loaded_tokens"],
+                )
 
     def test_a_301_character_description_fails(self) -> None:
         set_description(self.root, "game-debug", description_of_length(301))
@@ -834,7 +870,11 @@ class BudgetTest(unittest.TestCase):
             )
         plan = self.root / "skills" / "game-plan" / "SKILL.md"
         plan.write_text(
-            plan.read_text(encoding="utf-8") + "\nPadding the body past its cap.\n" * 200,
+            plan.read_text(encoding="utf-8").replace(
+                "\n## Rules And Pushback\n",
+                "\nPadding the body past its cap.\n" * 200 + "\n## Rules And Pushback\n",
+                1,
+            ),
             encoding="utf-8",
             newline="\n",
         )
@@ -842,7 +882,7 @@ class BudgetTest(unittest.TestCase):
         self.assertEqual(returncode, 1)
         self.assertEqual(
             codes_by_path(payload),
-            {("DESCRIPTION_TOTAL", "skills"), ("BODY_BUDGET", "skills/game-plan/SKILL.md")},
+            {("DESCRIPTION_TOTAL", "skills"), ("LOAD_BUDGET", "skills/game-plan/SKILL.md")},
             payload["problems"],
         )
         self.assertGreater(payload["budgets"]["description_total"], budgets["description_total_cap"])

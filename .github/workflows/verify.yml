@@ -30,9 +30,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.11", "3.15"]
-        include:
-          - os: ubuntu-latest
-            python: "3.14"
+        # Python 3.14 runs on Linux only in the weekly and manual runs: the
+        # floor and the newest version cover pushes, and the weekly run
+        # catches anything unique to the version between them.
+        include: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '[{"os":"ubuntu-latest","python":"3.14"}]' || '[]') }}
     defaults:
       run:
         shell: bash
@@ -48,21 +49,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      # Structure, frontmatter, text policy, budgets, and the neutrality lint.
+      # Structure, frontmatter, plugin manifests, version, links, text policy,
+      # budgets, and the neutrality lint. The --metadata and validate_skill.py
+      # command lines are covered by the tool tests below.
       - name: Verify package
         run: python -B -X warn_default_encoding -W error::EncodingWarning tools/verify_package.py --budgets
-
-      # The same checks the package step makes, reported on their own: the
-      # plugin manifests, one version in VERSION, both manifests, and the
-      # newest CHANGELOG entry, and every relative link and image path in
-      # README.md, CHANGELOG.md, and docs/*.md.
-      - name: Check plugin manifests, version, and links
-        run: python -B -X warn_default_encoding -W error::EncodingWarning tools/verify_package.py --metadata
-
-      - name: Validate portable frontmatter
-        run: >-
-          python -B -X warn_default_encoding -W error::EncodingWarning
-          tools/validate_skill.py --level portable skills/*/
 
       - name: Run the strict static auditor on every skill
         run: |

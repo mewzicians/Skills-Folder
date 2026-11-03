@@ -13,30 +13,27 @@ dramatic purpose, memorable identity, and honest self-critique.
 ## Scope The Request
 
 1. Read only repository guidance, such as `AGENTS.md`.
-2. Classify the request before reading the project profile or any project
-   file, and before any project-specific recommendation. It is
-   project-attached only when the user names the project or artifact, directly
-   supplies material with clear project provenance, clearly continues an
-   already named project decision, or asks for a claim that depends on current
-   implementation, approval state, or history. Otherwise it is
-   project-unattached: "this loop," "the piece," "a game," or "the current
-   tune" do not by themselves refer to the workspace, open files, recent
-   project files, or prior project history.
-3. Repository location, `AGENTS.md`, open files, and available project
-   documents govern conduct but do not establish the creative scope of an
-   otherwise generic request.
-4. While unattached, use
+2. Before reading the project profile or any project file, and before any
+   project-specific recommendation, classify the request. It is
+   project-attached only when the user names the project or artifact,
+   supplies material with clear project provenance, continues an already
+   named project decision, or asks for a claim that depends on current
+   implementation, approval state, or history. "This loop," "the piece," "a
+   game," or "the current tune" don't by themselves refer to the workspace,
+   open files, recent project files, or project history, and a mixed request
+   about music and a neighboring domain stays generic unless project
+   provenance is explicit. Repository guidance and open documents govern
+   conduct, not the creative scope.
+3. **Hard rule:** while unattached, use
    [references/project-profile.md](references/project-profile.md) only to
-   locate a general music guide. Do not read, mention, or apply a project
-   brief, worklog, approval record, audition, implementation detail, or
-   project-specific taste; use the general guide and supplied material only.
+   locate a general music guide, and use only that guide and the supplied
+   material. Don't read, mention, or apply a project brief, worklog, approval
+   record, audition, implementation detail, or project-specific taste,
+   because a generic answer that leaks project history exposes private work.
    Ask one scope question only when project identity would materially change
-   the answer; otherwise use project-neutral assumptions.
-5. A mixed request about music and a neighboring domain stays generic unless
-   project provenance is explicit.
-6. Before sending an unattached response, scan it for project names, cue
-   names, mechanics, approvals, and history that did not come from the prompt
-   or supplied material, and remove that leaked context.
+   the answer; otherwise use project-neutral assumptions. Before replying,
+   remove any project names, cue names, mechanics, approvals, or history that
+   didn't come from the prompt or supplied material.
 
 ## Read Before Judging
 
@@ -72,9 +69,10 @@ conflict instead of silently protecting older material.
   mechanism caused an audible artifact until reproduction or source-level
   evidence isolates it; name the leading hypothesis and its distinguishing
   test.
-- Use **selected** only for the exact component chosen, **approved** only for
+- **Hard rule:** use **selected** only for the exact component chosen, **approved** only for
   the exact work and scope approved, and **shipped** only when implementation
-  evidence confirms integration. One passing component does not make a cue,
+  evidence confirms integration, because an inflated status gets built on as
+  if the user had decided. One passing component does not make a cue,
   direction, or workflow ready.
 
 ## Review Like A Composer
@@ -105,7 +103,7 @@ for working modes, motifs, transformation, character status, and game music.
 
 ## Use References Responsibly
 
-Extract qualities, such as emotional arc or groove, from references. Never
+Extract qualities, such as emotional arc or groove, from references. **Hard rule:** never
 copy protected melody, lyrics, arrangement, signature sound design,
 performance, or recording. Treat an admired composer's name as a standard of
 craft, drawing transferable principles into original material. When a
@@ -123,19 +121,25 @@ one or interpreting a listening verdict, plus
 [references/web-audio-auditions.md](references/web-audio-auditions.md) for
 code-generated audio.
 
-Every substantive recommendation that selects a direction, diagnoses a cause,
-or claims readiness includes a compact audition contract: the exact control;
-the changed variable or coordinated hypothesis; the audible decision
-criterion; what each plausible result changes next; the repeated
-complete-phrase or complete-form exposure; and the current status with
-remaining gates. Only raw brainstorming may omit it.
+When you build an audition or claim readiness, include a compact audition
+contract: the exact control; the changed variable or coordinated hypothesis;
+the audible decision criterion; what each plausible result changes next; the
+repeated complete-phrase or complete-form exposure; and the current status
+with remaining gates. A recommendation that diagnoses a cause names the
+discriminating audible test that would confirm it, and stays a hypothesis
+until that test runs.
 
-Build the next audition from the selected material and keep every compared
-version byte-intact. Move, retag, retire, or replace an audition, candidate,
-or baseline only after the user's explicit approval names both the exact item
-and the action. Never delete one; an approved removal goes to a dated
-quarantine with a manifest and hashes unless project rules name another
-method.
+**Hard rule:** build the next audition from the selected material and keep
+every compared version byte-intact, because editing a compared version
+rewrites the evidence a past verdict relied on. **Hard rule:** move, retag,
+retire, or replace an audition, candidate, or baseline only after the user's
+explicit approval names both the exact item and the action, and never delete
+one. Carry out an approved removal of a git-tracked file as its own commit
+only when its current bytes are already committed, without committing other
+pending edits to get there; otherwise move it to a dated quarantine with
+collision-safe names, a list of original paths, and hashes for any compared
+version, unless project rules name another method. An approved removal never
+permits publishing the backup.
 
 Match the response to the decision. For substantial reviews, report the
 verdict, useful composer questions, reservations (critical problems, tuning
@@ -150,10 +154,43 @@ impressive but emotionally flat, or overworked around a weak central idea.
 
 - Keep planning separate from implementation unless the user requests both,
   and preserve unrelated changes.
-- Edit a music guide or research library only when the user asks or the
-  project profile's standing approvals point to the user's own written grant
-  for it, under the lifecycle reference, which also says when to research.
+- **Hard rule:** edit a music guide or research library only when the user
+  asks or the project profile's standing approvals point to the user's own
+  written grant for it, under the lifecycle reference, which also says when to
+  research. A guide steers every later session, so an unasked edit spreads.
 - Record only explicit approvals. When edits are permitted and a decision
-  should persist, update every affected brief, worklog, and approval record.
-- Never integrate exploratory music into a shipped product before the project
-  approval gate, and verify in proportion to musical and technical risk.
+  should persist, record it once, in the approval record the profile names;
+  add a worklog line only when the reasoning won't be obvious from that
+  record and git history.
+- **Hard rule:** never integrate exploratory music into a shipped product
+  before the project approval gate, because players hear what ships. Verify
+  in proportion to musical and technical risk.
+
+## Rules And Pushback
+
+Lines marked **Hard rule** guard approvals, deletion, publishing, and private
+data, where a mistake is costly or can't be undone; each gives its reason.
+Don't bend one because a request is casual: ask the user. Unmarked lines still
+bind too. Scope limits, honest evidence, and approval steps aren't optional.
+Scale each step's effort to the risk, and say so when you skip one that
+doesn't fit. A profile or instruction file records an owner decision only
+where it says the owner made it; otherwise treat it as project guidance. If a
+rule seems wrong for this task, say which one and why before you continue.
+
+## How Rules Get Made
+
+1. Something the user says in passing applies to the current task only.
+2. Exception: anything about money, privacy, publishing, deleting, or
+   permissions binds as soon as they say it. Ask once whether to make it
+   permanent.
+3. A rule becomes standing only when the user says "make this a rule", or you
+   ask and they say yes. Record their words, the date, and the reason with it.
+4. This covers every file that steers an agent: instruction files, style
+   guides, skills, checklists, templates, CI checks, and agent memory.
+5. Don't add a rule after your own mistake or a reviewer's nitpick without
+   that yes. Fix the input or the work instead.
+6. A new ruling replaces the one it contradicts. Never keep both.
+7. Ask about new rules once, batched at the end of the task.
+8. When a file hits its size cap, or at a milestone, prune it: cut rules no
+   one can tie to a reason. The user's taste decisions are flagged for them
+   and never cut by an agent.

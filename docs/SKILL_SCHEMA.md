@@ -182,37 +182,54 @@ Each new skill is classified when it ships.
 
 ## Budgets
 
-Hosts list every skill's description in the agent's context, and each body
-loads whenever its skill runs, so `tools/verify_package.py` fails when:
+Hosts list every skill's description in the agent's context, and each run
+loads the skill's body plus any reference the body reads every time, so
+`tools/verify_package.py` fails when:
 
 - a description is longer than 300 characters (`DESCRIPTION_BUDGET`);
 - all descriptions together are longer than 3,600 characters
   (`DESCRIPTION_TOTAL`); or
-- a body's estimated tokens exceed its cap (`BODY_BUDGET`).
+- a run's estimated load exceeds its cap (`LOAD_BUDGET`).
 
-A body is everything after the closing `---`. Its estimate is its characters
-divided by 4, rounded up. That is rough for any one tokenizer, but stable
-enough to compare skills with one another and with their caps.
+A body is everything after the closing `---`. A run's load is the body plus
+each always-read reference the skill carries, today only
+`references/project-profile.md`. Estimates are characters divided by 4,
+rounded up: rough for any one tokenizer, but stable enough to compare skills
+with one another and with their caps. References a body reads only for some
+tasks aren't counted.
 
-Each body cap is a deliberate ratchet, not a target:
+Each load cap is a ratchet that started at the skill's 1.3.0 load, after the
+shared rules section (about 420 tokens) went into every body:
 
 | Skill | Cap (estimated tokens) | Reason |
 | --- | --- | --- |
-| Every workflow skill | 1,200 | A workflow body holds its contract; project detail lives in the project profile. |
-| `context-continuity` | 2,000 | Its body carries the ledger procedure that recovery depends on. |
-| `skill-auditor` | 2,500 | Its body carries the audit contract, evidence gates, and readiness calibration; method detail lives in its references. |
-| `music-composer` | 2,200 | 2,000 until the C2 review. Raised 10% to restore the scope gate, which classifies a request before any project read, and the project-attached reads, after the working-mode detail moved into a reference. |
+| A new workflow skill | 1,300 | A workflow body holds its contract and the shared section; project detail lives in the project profile. |
+| `game-ux-audit`, `game-balance-lab`, `game-debug`, `game-implement`, `game-plan`, `game-playtest-analysis`, `game-qa-cleanup`, `game-full-verification` | 950 to 1,300 | Each skill's 1.3.0 load, rounded up to the next 50. |
+| `game-release` | 1,700 | Its body carries the publication checks, the archive builder's fail-closed rules, and the removal procedure. |
+| `context-continuity` | 2,450 | Its body carries the ledger procedure that recovery depends on. |
+| `music-composer` | 3,000 | Its body carries the scope gate, which classifies a request before any project read, and the status and audition rules. |
+| `skill-auditor` | 3,100 | Its body carries the audit contract, evidence gates, and readiness calibration; method detail lives in its references. |
 
-When a body outgrows its cap, move detail into an on-demand reference linked
-by one routing line. Lower a cap when a body shrinks for good. Raise one only
-to restore a rule that cannot move into a reference, by at most 10% at a time,
-and record the reason in this table and next to the cap in
-`tools/verify_package.py`. Never drop a rule to fit a cap. `--budgets` prints
-every skill's figures:
+When a skill outgrows its cap, cut what no longer earns its place first, and
+move only real knowledge into an on-demand reference linked by one routing
+line. Never drop a safety, approval, or evidence requirement to fit a cap. A
+raise is allowed when a rule earns its space: record the reason in this table
+and next to `LOAD_TOKEN_CAPS` in `tools/verify_package.py`. Lower a cap when a
+skill shrinks for good. `--budgets` prints every skill's figures:
 
 ```text
 python -B tools/verify_package.py --budgets
 ```
+
+## Shared Rules Section
+
+Every `SKILL.md` ends with the same section, from `## Rules And Pushback` to
+the end of the file. It says which lines are marked **Hard rule** and why,
+that unmarked lines still bind, that a profile records an owner decision only
+where it says so, how to push back on a rule, and how rules get made. Edit it
+in every skill at once. `tools/verify_package.py` fails when a skill lacks it
+(`SHARED_SECTION_MISSING`) or its copy differs from the one most skills share
+(`SHARED_SECTION_DRIFT`).
 
 ## Relationship To Other Checks
 
@@ -228,7 +245,7 @@ python -B tools/verify_package.py --budgets
   `tools/verify_package.py` fails if the copy differs from this module after
   its one header line, so edit this module and then recopy it.
 - `skills/skill-auditor/scripts/audit_skill.py` keeps its own frontmatter
-  checks until a later v1.1 step moves it onto this module.
+  checks; no step is scheduled to move it onto this module.
 - The schema module never imports PyYAML. PyYAML may appear only in CI, as a
   test dependency.
   [`tests/frontmatter/test_differential.py`](../tests/frontmatter/test_differential.py)

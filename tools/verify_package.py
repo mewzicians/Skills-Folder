@@ -9,7 +9,7 @@ from carrying one, the explicit-only skills' invocation policy and wording,
 the root plugin's manifests and marketplaces, one suite version across
 VERSION, both manifests, and the newest CHANGELOG entry, the relative links
 and images in README.md, CHANGELOG.md, and docs/*.md, the description and
-body budgets, and the neutrality lint, which reports text that ties the
+load budgets, the shared section, and the neutrality lint, which reports text that ties the
 suite to one author or machine. Inside a git checkout the inventory comes from git, so
 git-ignored files are skipped; elsewhere, such as an extracted archive, every
 file is checked.
@@ -107,18 +107,35 @@ IMPLICIT_OFF = re.compile(r"^\s+allow_implicit_invocation:\s*false\s*(?:#.*)?$")
 DESCRIPTION_CAP = 300
 DESCRIPTION_TOTAL_CAP = 3600
 CHARS_PER_TOKEN = 4
-# Body caps are deliberate ratchets. Lower one when a body shrinks for good;
-# raise one only to restore a rule that cannot move into a reference, by at
-# most 10% at a time, and record the reason here and in docs/SKILL_SCHEMA.md.
-WORKFLOW_BODY_TOKEN_CAP = 1200
-BODY_TOKEN_CAPS = {
-    "context-continuity": 2000,
-    "skill-auditor": 2500,
-    # 2000 until the C2 review: raised 10% to restore the scope gate, which
-    # classifies a request before any project read, and the project-attached
-    # reads, after the working-mode detail moved into a reference.
-    "music-composer": 2200,
+# Load caps (SF-7) measure what a run actually loads: the body plus every
+# reference the body reads on every run (ALWAYS_LOADED, when the skill has
+# it). They are ratchets that started at each skill's 1.3.0 load, after the
+# shared rules block (about 420 tokens) went into every body. Lower one when a
+# skill shrinks for good. Cut what no longer earns its place first; move only
+# real knowledge into an on-demand reference; never drop a safety, approval,
+# or evidence requirement to fit a cap. A raise is allowed when a rule earns
+# its space: record the reason here and in docs/SKILL_SCHEMA.md.
+ALWAYS_LOADED = ("references/project-profile.md",)
+WORKFLOW_LOAD_TOKEN_CAP = 1300
+LOAD_TOKEN_CAPS = {
+    "context-continuity": 2450,
+    "game-balance-lab": 1050,
+    "game-debug": 1150,
+    "game-full-verification": 1300,
+    "game-implement": 1150,
+    "game-plan": 1200,
+    "game-playtest-analysis": 1200,
+    "game-qa-cleanup": 1250,
+    "game-release": 1700,
+    "game-ux-audit": 950,
+    "music-composer": 3000,
+    "skill-auditor": 3100,
 }
+
+# Every SKILL.md ends with the same shared section, from this heading to the
+# end of the file (SF-1). The copy most skills share wins; a missing or
+# differing copy fails.
+SHARED_SECTION_HEADING = "## Rules And Pushback"
 
 # Neutrality lint (part of the default run; --lint runs it alone). Every
 # pattern is built from fragments, so this file never contains anything it
@@ -592,6 +609,43 @@ def check_identical(root: Path, files: set[str], skills: list[str], problems: li
                 )
 
 
+def check_shared_section(root: Path, files: set[str], skills: list[str], problems: list[Problem]) -> None:
+    """Every SKILL.md ends with the shared section, and every copy matches the one most share."""
+    sections: dict[str, bytes] = {}
+    for name in skills:
+        skill_md = f"skills/{name}/SKILL.md"
+        if skill_md not in files:
+            continue
+        data = (root / skill_md).read_bytes().replace(b"\r\n", b"\n")
+        heading = ("\n" + SHARED_SECTION_HEADING + "\n").encode("utf-8")
+        index = data.find(heading)
+        if index < 0:
+            problems.append(
+                Problem(
+                    "SHARED_SECTION_MISSING",
+                    skill_md,
+                    f"lacks the shared section that starts at '{SHARED_SECTION_HEADING}' and ends the file.",
+                )
+            )
+            continue
+        sections[skill_md] = data[index + 1 :]
+    counts = Counter(sections.values())
+    if len(counts) < 2:
+        return
+    expected = max(counts, key=counts.__getitem__)
+    reference = next(path for path in sorted(sections) if sections[path] == expected)
+    for path in sorted(sections):
+        if sections[path] != expected:
+            problems.append(
+                Problem(
+                    "SHARED_SECTION_DRIFT",
+                    path,
+                    f"its shared section differs from {reference}, which {counts[expected]} of the "
+                    f"{len(sections)} skills share; keep the section identical and last.",
+                )
+            )
+
+
 def estimated_tokens(text: str) -> int:
     return -(-len(text) // CHARS_PER_TOKEN)
 
@@ -623,9 +677,21 @@ def check_budgets(
         total += length
         text = data.decode("utf-8", "replace").replace("\r\n", "\n")
         body = skill_body(text)
-        tokens = estimated_tokens(body) if body is not None else 0
-        cap = BODY_TOKEN_CAPS.get(name, WORKFLOW_BODY_TOKEN_CAP)
-        rows[name] = {"description_characters": length, "body_estimated_tokens": tokens, "body_token_cap": cap}
+        body_tokens = estimated_tokens(body) if body is not None else 0
+        loaded = 0
+        for reference in ALWAYS_LOADED:
+            path = f"skills/{name}/{reference}"
+            if path in files:
+                loaded += estimated_tokens((root / path).read_bytes().decode("utf-8", "replace"))
+        tokens = body_tokens + loaded
+        cap = LOAD_TOKEN_CAPS.get(name, WORKFLOW_LOAD_TOKEN_CAP)
+        rows[name] = {
+            "description_characters": length,
+            "body_estimated_tokens": body_tokens,
+            "always_loaded_tokens": loaded,
+            "load_estimated_tokens": tokens,
+            "load_token_cap": cap,
+        }
         if length > DESCRIPTION_CAP:
             line = next(
                 (number for number, row in enumerate(text.split("\n"), 1) if row.startswith("description:")),
@@ -642,10 +708,11 @@ def check_budgets(
         if tokens > cap:
             problems.append(
                 Problem(
-                    "BODY_BUDGET",
+                    "LOAD_BUDGET",
                     skill_md,
-                    f"the body is about {tokens} estimated tokens (characters / {CHARS_PER_TOKEN}); "
-                    f"the cap is {cap}. Move detail into an on-demand reference.",
+                    f"a run loads about {tokens} estimated tokens (characters / {CHARS_PER_TOKEN}): "
+                    f"{body_tokens} in the body and {loaded} in always-read references; the cap is {cap}. "
+                    "Cut what no longer earns its place, or record a justified raise.",
                 )
             )
     if total > DESCRIPTION_TOTAL_CAP:
@@ -668,11 +735,12 @@ def check_budgets(
 def render_budgets(budgets: dict[str, object]) -> list[str]:
     rows = budgets["skills"]
     width = max((len(name) for name in rows), default=5)
-    lines = [f"{'skill':<{width}}  description  body tokens"]
+    lines = [f"{'skill':<{width}}  description  load tokens (body + always-read)"]
     for name, row in rows.items():
         lines.append(
             f"{name:<{width}}  {row['description_characters']:>4}/{budgets['description_cap']:<6}"
-            f"  {row['body_estimated_tokens']:>4}/{row['body_token_cap']}"
+            f"  {row['load_estimated_tokens']:>4}/{row['load_token_cap']}"
+            f" ({row['body_estimated_tokens']} + {row['always_loaded_tokens']})"
         )
     lines.append(f"{'total':<{width}}  {budgets['description_total']:>4}/{budgets['description_total_cap']}")
     return lines
@@ -1243,6 +1311,7 @@ def verify(root: Path) -> tuple[list[Problem], dict[str, object]]:
         check_skill(root, name, fileset, schema, problems)
     check_copies(root, fileset, problems)
     check_identical(root, fileset, skills, problems)
+    check_shared_section(root, fileset, skills, problems)
     check_explicit_only(root, fileset, schema, problems)
     details = release_metadata(root, fileset, problems)
     budgets = check_budgets(root, skills, fileset, schema, problems)

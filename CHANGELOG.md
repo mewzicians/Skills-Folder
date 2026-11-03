@@ -6,6 +6,47 @@ Every notable change to this suite is recorded here. The format follows
 file, both plugin manifests, and the newest entry below always name the same
 version.
 
+## [1.3.0] - 2026-11-03
+
+### Changed
+
+- Every skill now ends with a shared **Rules And Pushback** section: lines
+  marked **Hard rule** guard approvals, deletion, publishing, and private
+  data and give their reason; unmarked lines still bind; a profile records an
+  owner decision only where it says so; a rule that seems wrong is named
+  before work continues; and rules are made only on the user's yes.
+  `tools/verify_package.py` fails when a skill lacks the section or its copy
+  differs (`SHARED_SECTION_MISSING`, `SHARED_SECTION_DRIFT`).
+- Removals: an approved removal of a git-tracked file is its own commit when
+  its bytes are already committed, never by committing other pending edits;
+  otherwise a dated quarantine with collision-safe names and a list of
+  original paths, plus hashes for compared music versions.
+- `skill-auditor` adds a practical audit, the default when you ask it to find
+  gaps. It never awards a readiness level whose gate it didn't run; a full
+  audit is still used for readiness verdicts and self-audits.
+- `context-continuity` recovers with a non-strict check that reports age as
+  a warning, and a moved workspace can be rebound after checking it is the
+  same project, with the new `continuity_ledger.py fingerprint` command.
+- `game-plan` honors a delegated choice within its scope, labeled
+  agent-chosen; delegation never covers publishing, deleting, or changing an
+  approved value.
+- `game-release` points to the archive builder's `--help` for options.
+  `music-composer`'s scope gate is shorter with the same rules, and its
+  audition contract applies when building an audition or claiming readiness.
+- **Budgets:** caps now cover what a run loads, the body plus the always-read
+  profile router (`LOAD_BUDGET` replaces `BODY_BUDGET`), starting at each
+  skill's 1.3.0 load. A justified raise is allowed; a safety, approval, or
+  evidence requirement is never dropped to fit a cap.
+- The project profile template is a twelve-line core with optional pointers.
+- Install detail moved from the README to [docs/INSTALL.md](docs/INSTALL.md).
+  [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) records the 2026-10-26 CI
+  run, adds a real-host check to run before each release, and freezes the
+  installer, frontmatter tooling, and archive builder to bug, compatibility,
+  and security fixes.
+- CI drops the separate `--metadata` and portable-frontmatter steps, which
+  the package step and tool tests already cover, and runs Python 3.14 on
+  Linux only in the weekly and manual runs.
+
 ## [1.2.0] - 2026-10-22
 
 ### Changed
@@ -14,8 +55,8 @@ version.
   and `game-skill-auditor` to `skill-auditor`. Neither depends on a game, so
   their names, descriptions, and Codex display names no longer say so. Call
   them as `$context-continuity` and `$skill-auditor`. `install.py` offers to
-  move the old folders to backups; see the README's
-  [Upgrading from 1.1.x](README.md#upgrading-from-11x).
+  move the old folders to backups; see the install guide's
+  [Upgrading from 1.1.x](docs/INSTALL.md#upgrading-from-11x).
 - When `install.py` moves a renamed or removed skill to backups, it also
   removes that skill's install record, and its messages name the skill that
   replaced it.
@@ -23,8 +64,8 @@ version.
 ## [1.1.0] - 2026-10-20
 
 Items marked **Breaking** change how you install or invoke the suite. To
-upgrade from 1.0.x, follow the README's
-[Upgrading from 1.0.x](README.md#upgrading-from-10x).
+upgrade from 1.0.x, follow the install guide's
+[Upgrading from 1.0.x](docs/INSTALL.md#upgrading-from-10x).
 
 ### Added
 
